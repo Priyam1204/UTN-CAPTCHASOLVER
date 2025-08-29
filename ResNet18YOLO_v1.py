@@ -69,7 +69,7 @@ class Stem(nn.Module):
 #  Residual Block used for resnet
 class ResidualBlock(nn.Module):
     expansion = 1
-    def __init__(self, in_ch, out_ch, stride=1, downsample=None, dilation=1):
+    def __init__(self, in_ch, out_ch, stride=1, dilation=1):
         super().__init__()
         """
         [IMPROVEMENT] allow dilation to grow RF without more downsamples
@@ -85,7 +85,6 @@ class ResidualBlock(nn.Module):
                                padding=padding, dilation=dilation, bias=False)
         self.bn2   = nn.BatchNorm2d(out_ch)
 
-        self.downsample = downsample
 
         # Init
         for m in (self.conv1, self.conv2):
@@ -99,8 +98,6 @@ class ResidualBlock(nn.Module):
         out = self.act(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
 
-        if self.downsample is not None:
-            identity = self.downsample(x)
 
         out += identity
         out = self.act(out)
@@ -142,17 +139,10 @@ class ResNet18Backbone(nn.Module):
         down = None
         in_ch = self.in_ch
 
-        # Downsample (no BlurPool): plain 1×1 conv with stride as needed
-        if stride != 1 or in_ch != out_ch:
-            down = nn.Sequential(
-                nn.Conv2d(in_ch, out_ch, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_ch)
-            )
-
-        layers = [block(in_ch, out_ch, stride=stride, downsample=down, dilation=dilation)]
+        layers = [block(in_ch, out_ch, stride=stride, dilation=dilation)]
         self.in_ch = out_ch
         for _ in range(1, blocks):
-            layers.append(block(out_ch, out_ch, stride=1, downsample=None, dilation=dilation))
+            layers.append(block(out_ch, out_ch, stride=1, dilation=dilation))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -162,7 +152,6 @@ class ResNet18Backbone(nn.Module):
         x = self.layer3(x)     # -> 40x160
         x = self.layer4(x)     # -> 40x160
         return x
-
 class YOLOv8Head(nn.Module):
     """
     YOLOv8-style detection head for CAPTCHA character detection
@@ -239,11 +228,95 @@ class YOLOv8Head(nn.Module):
         
         return x
 
+class ResNet18YOLO(nn.Module):
+    """
+    Full CAPTCHA solver backbone + YOLO head
+    Hybrid approach: ResNet18-style backbone with dilations, YOLOv8-inspired detection head.
+    
+    Input:  (batch_size, 1, 160, 640)  grayscale CAPTCHA image
+    Output: (batch_size, 10*10*(5 + num_classes))  detection grid
+    """
+    def __init__(self, num_classes=37, grid_size=10):
+        super(ResNet18YOLO, self).__init__()
+        # backbone
+        self.backbone = ResNet18Backbone(in_ch=1, return_p3=True)
+        # head
+        self.head = YOLOv8Head(in_channels=256, num_classes=num_classes, S=grid_size)
+
+    def forward(self, x):
+        # Extract backbone features
+        feats = self.backbone(x)              # (batch, 256, 40, 160)
+        # YOLO-style detection
+        preds = self.head(feats)              # (batch, 7*7*(5+num_classes))
+        return preds
+
+def decode_yolo_output(preds, num_classes=37, height=10, width=40, img_h=160, img_w=640, conf_thresh=0.5):
+    """
+    Decode YOLOv8Head predictions into bounding boxes and class labels.
+    
+    Args:
+        preds: (batch_size, height*width*(5+num_classes)) flattened tensor
+        num_classes: number of character classes
+        height, width: grid dimensions (10x40 for your case)
+        img_h, img_w: input image dimensions (160x640)
+        conf_thresh: confidence threshold for objectness
+        
+    Returns:
+        List[ List[dict] ] where each inner list is detections for one image:
+        {
+            "x_center": float,
+            "y_center": float,
+            "width": float,
+            "height": float,
+            "class": int,
+            "confidence": float
+        }
+    """
+    batch_size = preds.shape[0]
+    cell_h = img_h / height
+    cell_w = img_w / width
+    
+    detections = []
+    
+    for b in range(batch_size):
+        img_preds = preds[b].view(height, width, 5 + num_classes)  # (H, W, 5+num_classes)
+        
+        boxes = []
+        for i in range(height):
+            for j in range(width):
+                tx, ty, tw, th, obj_conf, *class_logits = img_preds[i, j]
+                
+                # Apply activations
+                obj_conf = torch.sigmoid(obj_conf).item()
+                class_probs = F.softmax(torch.tensor(class_logits), dim=0)
+                cls_conf, cls_id = torch.max(class_probs, dim=0)
+                
+                # Skip low-confidence predictions
+                if obj_conf * cls_conf.item() < conf_thresh:
+                    continue
+                
+                # Decode box relative to grid cell
+                x_center = (j + torch.sigmoid(tx).item()) * cell_w
+                y_center = (i + torch.sigmoid(ty).item()) * cell_h
+                width_box = torch.exp(tw).item() * cell_w
+                height_box = torch.exp(th).item() * cell_h
+                
+                boxes.append({
+                    "x_center": x_center,
+                    "y_center": y_center,
+                    "width": width_box,
+                    "height": height_box,
+                    "class": int(cls_id.item()),
+                    "confidence": float(obj_conf * cls_conf.item())
+                })
+        
+        detections.append(boxes)
+    
+    return detections
+
 # --- Example usage ---
 if __name__ == "__main__":
     model = ResNet18YOLO(num_classes=37, grid_size=7)
     dummy = torch.randn(2, 1, 160, 640)  # batch=2, grayscale CAPTCHA
     out = model(dummy)
-
     print("Output shape:", out.shape)   # Expected: (2, 7*7*(5+37))
-
