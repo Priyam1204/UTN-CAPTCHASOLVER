@@ -167,15 +167,16 @@ class YOLOv8Head(nn.Module):
     """
     YOLOv8-style detection head for CAPTCHA character detection
     
-    Input: Feature maps from ResNet18 backbone (batch_size, 512, 5, 20)
-    Output: Predictions (batch_size, S*S*(5 + num_classes))
+    Input: Feature maps from ResNet18 backbone (batch_size, 256, H, W)
+    Output: Predictions (batch_size, height*width*(5 + num_classes))
            Format: [x, y, w, h, objectness, class_0, class_1, ...]
     """
     
-    def __init__(self, in_channels=256, num_classes=37, height=10,width=40):
+    def __init__(self, in_channels=256, num_classes=37, height=10, width=40):
         super(YOLOv8Head, self).__init__()
         self.num_classes = num_classes
-        self.S = S
+        self.height = height
+        self.width = width
         
         # Output channels: bbox(4) + objectness(1) + classes(num_classes)
         self.output_channels = 5 + num_classes
@@ -193,8 +194,8 @@ class YOLOv8Head(nn.Module):
         # Final prediction layer
         self.pred_conv = nn.Conv2d(64, self.output_channels, kernel_size=1)
         
-        # Adaptive pooling to ensure S×S output (7×7 grid)
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((S, S))
+        # Adaptive pooling to ensure (height × width) output
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((height, width))
         
         # Initialize weights
         self._init_weights()
@@ -215,52 +216,28 @@ class YOLOv8Head(nn.Module):
         Forward pass
         
         Args:
-            x: Feature maps from backbone (batch_size, 256, 10, 40)
+            x: Feature maps from backbone (batch_size, 256, H, W)
             
         Returns:
-            predictions: (batch_size, 10*40*(5 + num_classes))
+            predictions: (batch_size, height*width*(5 + num_classes))
         """
         # Process features through conv layers
-        x = F.relu(self.bn1(self.conv1(x)))  # (batch_size, 256, 5, 20)
-        x = F.relu(self.bn2(self.conv2(x)))  # (batch_size, 128, 5, 20)
-        x = F.relu(self.bn3(self.conv3(x)))  # (batch_size, 64, 5, 20)
+        x = F.relu(self.bn1(self.conv1(x)))  
+        x = F.relu(self.bn2(self.conv2(x)))  
+        x = F.relu(self.bn3(self.conv3(x)))  
         
         # Get predictions
-        x = self.pred_conv(x)  # (batch_size, 5+num_classes, 5, 20)
+        x = self.pred_conv(x)  # (batch_size, 5+num_classes, H, W)
         
-        # Ensure S×S spatial dimensions (7×7 grid)
-        x = self.adaptive_pool(x)  # (batch_size, 5+num_classes, 7, 7)
+        # Ensure fixed grid size
+        x = self.adaptive_pool(x)  # (batch_size, 5+num_classes, height, width)
         
         # Reshape for loss function
         batch_size = x.size(0)
-        x = x.permute(0, 2, 3, 1)  # (batch_size, 19, 10, 5+num_classes)
-        x = x.view(batch_size, -1)  # (batch_size, 10*10*(5+num_classes))
+        x = x.permute(0, 2, 3, 1)  # (batch_size, height, width, 5+num_classes)
+        x = x.view(batch_size, -1)  # (batch_size, height*width*(5+num_classes))
         
         return x
-        
-    
-class ResNet18YOLO(nn.Module):
-    """
-    Full CAPTCHA solver backbone + YOLO head
-    Hybrid approach: ResNet18-style backbone with dilations, YOLOv8-inspired detection head.
-    
-    Input:  (batch_size, 1, 160, 640)  grayscale CAPTCHA image
-    Output: (batch_size, 10*10*(5 + num_classes))  detection grid
-    """
-    def __init__(self, num_classes=37):
-        super(ResNet18YOLO, self).__init__()
-        # backbone
-        self.backbone = ResNet18Backbone(in_ch=1, return_p3=True)
-        # head
-        self.head = YOLOv8Head(in_channels=256, num_classes=num_classes, height=10,width=40)
-
-    def forward(self, x):
-        # Extract backbone features
-        feats = self.backbone(x)              # (batch, 256, 40, 160)
-        # YOLO-style detection
-        preds = self.head(feats)              # (batch, 10*40*(5+num_classes))
-        return preds
-
 
 # --- Example usage ---
 if __name__ == "__main__":
@@ -269,3 +246,4 @@ if __name__ == "__main__":
     out = model(dummy)
 
     print("Output shape:", out.shape)   # Expected: (2, 7*7*(5+37))
+
