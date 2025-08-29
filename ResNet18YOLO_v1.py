@@ -172,7 +172,7 @@ class YOLOv8Head(nn.Module):
            Format: [x, y, w, h, objectness, class_0, class_1, ...]
     """
     
-    def __init__(self, in_channels=256, num_classes=37, S=7):
+    def __init__(self, in_channels=256, num_classes=37, height=10,width=40):
         super(YOLOv8Head, self).__init__()
         self.num_classes = num_classes
         self.S = S
@@ -215,10 +215,10 @@ class YOLOv8Head(nn.Module):
         Forward pass
         
         Args:
-            x: Feature maps from backbone (batch_size, 512, 5, 20)
+            x: Feature maps from backbone (batch_size, 256, 10, 40)
             
         Returns:
-            predictions: (batch_size, S*S*(5 + num_classes))
+            predictions: (batch_size, 10*40*(5 + num_classes))
         """
         # Process features through conv layers
         x = F.relu(self.bn1(self.conv1(x)))  # (batch_size, 256, 5, 20)
@@ -237,7 +237,7 @@ class YOLOv8Head(nn.Module):
         x = x.view(batch_size, -1)  # (batch_size, 10*10*(5+num_classes))
         
         return x
-    
+        
     
 class ResNet18YOLO(nn.Module):
     """
@@ -247,18 +247,18 @@ class ResNet18YOLO(nn.Module):
     Input:  (batch_size, 1, 160, 640)  grayscale CAPTCHA image
     Output: (batch_size, 10*10*(5 + num_classes))  detection grid
     """
-    def __init__(self, num_classes=37, grid_size=10):
+    def __init__(self, num_classes=37):
         super(ResNet18YOLO, self).__init__()
         # backbone
         self.backbone = ResNet18Backbone(in_ch=1, return_p3=True)
         # head
-        self.head = YOLOv8Head(in_channels=256, num_classes=num_classes, S=grid_size)
+        self.head = YOLOv8Head(in_channels=256, num_classes=num_classes, height=10,width=40)
 
     def forward(self, x):
         # Extract backbone features
         feats = self.backbone(x)              # (batch, 256, 40, 160)
         # YOLO-style detection
-        preds = self.head(feats)              # (batch, 7*7*(5+num_classes))
+        preds = self.head(feats)              # (batch, 10*40*(5+num_classes))
         return preds
 
 
@@ -267,4 +267,5 @@ if __name__ == "__main__":
     model = ResNet18YOLO(num_classes=37, grid_size=7)
     dummy = torch.randn(2, 1, 160, 640)  # batch=2, grayscale CAPTCHA
     out = model(dummy)
+
     print("Output shape:", out.shape)   # Expected: (2, 7*7*(5+37))
