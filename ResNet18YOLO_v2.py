@@ -243,12 +243,12 @@ class ResNet18YOLO(nn.Module):
     Input:  (batch_size, 1, 160, 640)  grayscale CAPTCHA image
     Output: (batch_size, 10*10*(5 + num_classes))  detection grid
     """
-    def __init__(self, num_classes=37, grid_size=10):
+    def __init__(self, num_classes=37, grid_height,grid_width):
         super(ResNet18YOLO, self).__init__()
         # backbone
         self.backbone = ResNet18Backbone(in_ch=1, return_p3=True)
         # head
-        self.head = YOLOv8Head(in_channels=256, num_classes=num_classes, S=grid_size)
+        self.head = YOLOv8Head(in_channels=256, num_classes=num_classes, height=grid_height, width=grid_width))
 
     def forward(self, x):
         # Extract backbone features
@@ -323,9 +323,10 @@ def decode_yolo_output(preds, num_classes=37, height=10, width=40, img_h=160, im
 
 # --- Example usage ---
 if __name__ == "__main__":
-    model = ResNet18YOLO(num_classes=37, grid_size=7)
+    model = ResNet18YOLO(num_classes=37, grid_height=10, grid_width=40)
     dummy = torch.randn(2, 1, 160, 640)  # batch=2, grayscale CAPTCHA
     out = model(dummy)
     print("Output shape:", out.shape)   # Expected: (2, 7*7*(5+37))
+
 
 
