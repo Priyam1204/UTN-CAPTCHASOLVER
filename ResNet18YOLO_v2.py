@@ -166,7 +166,7 @@ class YOLOv8Head(nn.Module):
            Format: [x, y, w, h, objectness, class_0, class_1, ...]
     """
     
-    def __init__(self, in_channels=256, num_classes=37, height=10, width=40):
+    def __init__(self, in_channels=256, num_classes=37, height, width):
         super(YOLOv8Head, self).__init__()
         self.num_classes = num_classes
         self.height = height
@@ -323,10 +323,11 @@ def decode_yolo_output(preds, num_classes=37, height=10, width=40, img_h=160, im
 
 # --- Example usage ---
 if __name__ == "__main__":
-    model = ResNet18YOLO(num_classes=37, grid_height=10, grid_width=40)
+    model = ResNet18YOLO(num_classes=37, grid_height=20, grid_width=80)
     dummy = torch.randn(2, 1, 160, 640)  # batch=2, grayscale CAPTCHA
     out = model(dummy)
-    print("Output shape:", out.shape)   # Expected: (2, 7*7*(5+37))
+    print("Output shape:", out.shape)   # Expected: (2, 20*80*(5+37))
+
 
 
 
