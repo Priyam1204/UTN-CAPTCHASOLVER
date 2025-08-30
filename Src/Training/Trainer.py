@@ -35,9 +35,11 @@ class Trainer:
         # optimizer
         self.optimizer = Adam(self.model.parameters(), lr=lr)
 
-        # dataloader
         self.train_loader = CaptchaDataLoader(
-            data_dir, batch_size=batch_size, shuffle=True
+            data_dir,
+            batch_size=batch_size,
+            shuffle=True,
+            use_geo_aug=True   # <- boxes follow the image transforms
         )
 
         # target preparer
