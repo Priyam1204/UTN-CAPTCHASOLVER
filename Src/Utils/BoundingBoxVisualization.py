@@ -17,6 +17,13 @@ def BoundingBoxVisualization(Batch, idx=0, output_path="output_visualization.png
     Image = Image * 0.5 + 0.5  # Denormalize from [-1, 1] to [0, 1]
     Image = Image.permute(1, 2, 0)  # Convert [C, H, W] to [H, W, C]
 
+    # Handle grayscale images
+    if Image.shape[-1] == 1:  # Grayscale image
+        Image = Image.squeeze(-1)  # Remove the channel dimension
+        plt.imshow(Image, cmap='gray')  # Use grayscale colormap
+    else:
+        plt.imshow(Image)  # For RGB images
+
     # Extract annotations
     bounding_boxes = Batch['BoundingBoxes'][idx]
 
@@ -24,8 +31,6 @@ def BoundingBoxVisualization(Batch, idx=0, output_path="output_visualization.png
     captcha_string = Batch['CaptchaString'][idx]
 
     # Plot the image
-    plt.figure(figsize=(12, 4))
-    plt.imshow(Image)
     plt.title(f"CAPTCHA: {captcha_string}")
     plt.axis('off')
 
