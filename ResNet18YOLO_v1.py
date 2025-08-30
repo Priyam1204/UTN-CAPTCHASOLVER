@@ -184,7 +184,8 @@ class YOLOv8Head(nn.Module):
         self.pred_conv = nn.Conv2d(64, self.output_channels, kernel_size=1)
         
         # Adaptive pooling to ensure (height × width) output
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((height, width))
+        # self.adaptive_pool = nn.AdaptiveAvgPool2d((height, width))
+        # remove adaptive pool to consitent with resnet
         
         # Initialize weights
         self._init_weights()
@@ -219,7 +220,8 @@ class YOLOv8Head(nn.Module):
         x = self.pred_conv(x)  # (batch_size, 5+num_classes, H, W)
         
         # Ensure fixed grid size
-        x = self.adaptive_pool(x)  # (batch_size, 5+num_classes, height, width)
+        # x = self.adaptive_pool(x)  # (batch_size, 5+num_classes, height, width)
+        # remove adapative pool to make flexible and compatible with resnet
         
         # Reshape for loss function
         batch_size = x.size(0)
@@ -320,3 +322,4 @@ if __name__ == "__main__":
     dummy = torch.randn(2, 1, 160, 640)  # batch=2, grayscale CAPTCHA
     out = model(dummy)
     print("Output shape:", out.shape)   # Expected: (2, 7*7*(5+37))
+
