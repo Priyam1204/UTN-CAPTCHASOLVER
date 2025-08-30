@@ -1,11 +1,18 @@
+# TrainerTest.py (or your runner script)
 from Src.Training.Trainer import Trainer
 
 if __name__ == "__main__":
-    # Path to the dataset
-    data_dir = "/home/utn/omul36yx/git/UTN-CAPTCHASOLVER/UTN-CV25-Captcha-Dataset/part2/train"
-    
-    # Initialize the trainer
-    trainer = Trainer(data_dir=data_dir, num_classes=36, grid_height=20, grid_width=80, device='cuda')
+    data_dir = "/home/utn/abap44us/Downloads/UTN-CV25-Captcha-Dataset/part2/train"
 
-    # Train the model for 1 epoch
-    trainer.train(epochs=1)
+    trainer = Trainer(
+        data_dir=data_dir,
+        num_classes=36,
+        grid_height=20,
+        grid_width=80,
+        device="cuda",
+        batch_size=32,
+        lr=1e-3,
+        ckpt_dir="./checkpoints",
+    )
+
+    trainer.train(epochs=20)
