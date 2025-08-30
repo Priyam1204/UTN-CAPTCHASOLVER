@@ -134,17 +134,22 @@ class ResNet18Backbone(nn.Module):
 
         # layer4: same resolution (stride=1) with dilation
         self.layer4 = self._make_layer(ResidualBlock, 256, blocks=2, stride=1, dilation=2)  # slimmer tail (256)
-
     def _make_layer(self, block, out_ch, blocks, stride, dilation):
         down = None
         in_ch = self.in_ch
-
-        layers = [block(in_ch, out_ch, stride=stride, dilation=dilation)]
+    
+        # Projection when spatial size or channels change
+        if stride != 1 or in_ch != out_ch:
+            down = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_ch),
+            )
+    
+        layers = [block(in_ch, out_ch, stride=stride, dilation=dilation, downsample=down)]
         self.in_ch = out_ch
         for _ in range(1, blocks):
-            layers.append(block(out_ch, out_ch, stride=1, dilation=dilation))
+            layers.append(block(out_ch, out_ch, stride=1, dilation=dilation, downsample=None))
         return nn.Sequential(*layers)
-
     def forward(self, x):
         x = self.stem(x)         # -> 80x320
         x = self.layer1(x)      # -> 80x320
@@ -322,4 +327,5 @@ if __name__ == "__main__":
     dummy = torch.randn(2, 1, 160, 640)  # batch=2, grayscale CAPTCHA
     out = model(dummy)
     print("Output shape:", out.shape)   # Expected: (2, 7*7*(5+37))
+
 
