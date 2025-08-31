@@ -3,7 +3,7 @@ from .DataSet import CaptchaDataset
 from .Transform import Transform
 from .Collate import CaptchaCollateFn
 
-def CaptchaDataLoader(data_dir, batch_size=32, shuffle=True, num_workers=0, use_geo_aug=False):
+def CaptchaDataLoader(data_dir, batch_size=32, shuffle=True, num_workers=0):
     """
     Creates a DataLoader for the CAPTCHA dataset.
 
@@ -16,11 +16,8 @@ def CaptchaDataLoader(data_dir, batch_size=32, shuffle=True, num_workers=0, use_
     Returns:
         DataLoader: PyTorch DataLoader for the dataset.
     """
-    dataset = CaptchaDataset(
-        data_dir,
-        transform=Transform(),
-        use_geo_aug=use_geo_aug
-    )
+    dataset = CaptchaDataset(data_dir, transform=Transform())
+    
     return DataLoader(
         dataset,
         batch_size=batch_size,
