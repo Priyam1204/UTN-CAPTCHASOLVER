@@ -6,6 +6,10 @@ from Src.Model.Model import CaptchaSolverModel
 from Src.Model.Loss import ModelLoss
 from Src.Data.DataLoader import CaptchaDataLoader
 from Src.Utils.TargetPreparer import TargetPreparer
+from tqdm.auto import tqdm
+import sys
+import csv  # NEW
+from datetime import datetime  # NEW
 
 class Trainer:
     def __init__(self, data_dir, num_classes=36, grid_height=20, grid_width=80, 
@@ -20,6 +24,26 @@ class Trainer:
         
         # Create save directory
         os.makedirs(save_dir, exist_ok=True)
+
+        # --- CSV logging setup (NEW) ---
+        self.csv_path_batches = os.path.join(save_dir, "train_batches.csv")
+        self.csv_path_epochs = os.path.join(save_dir, "train_epochs.csv")
+
+        def _ensure_csv(path, header):
+            need_header = not os.path.exists(path) or os.path.getsize(path) == 0
+            if need_header:
+                with open(path, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(header)
+
+        _ensure_csv(self.csv_path_batches, [
+            "timestamp","epoch","batch_idx","num_batches","batch_loss","avg_loss","lr"
+        ])
+        _ensure_csv(self.csv_path_epochs, [
+            "timestamp","epoch","avg_loss","best_loss","lr","is_best"
+        ])
+        # --------------------------------
+
         
         # Initialize model
         self.model = CaptchaSolverModel(
@@ -41,8 +65,13 @@ class Trainer:
         # Initialize learning rate scheduler
         self.scheduler = self._get_scheduler()
         
-        # Initialize data loader
-        self.train_loader = CaptchaDataLoader(data_dir, batch_size=32, shuffle=True)
+        # Initialize data loader (geo augmentation ON)
+        self.train_loader = CaptchaDataLoader(
+            data_dir,
+            batch_size=32,
+            shuffle=True,
+            use_geo_aug=True
+        )
         
         # Initialize target preparer
         self.target_preparer = TargetPreparer(
@@ -56,7 +85,11 @@ class Trainer:
         # Training metrics
         self.best_loss = float('inf')
         self.train_losses = []
-        
+
+    def _csv_append(self, path, row):  # NEW
+        with open(path, "a", newline="") as f:
+            csv.writer(f).writerow(row)
+
     def _get_optimizer(self, optimizer_type, learning_rate, weight_decay):
         """
         Initialize the optimizer based on the specified type.
@@ -79,6 +112,7 @@ class Trainer:
         # Alternative schedulers:
         # return CosineAnnealingLR(self.optimizer, T_max=50)
         # return ReduceLROnPlateau(self.optimizer, mode='min', patience=5, factor=0.5)
+        
     
     def save_checkpoint(self, epoch, loss, is_best=False):
         """
@@ -135,89 +169,108 @@ class Trainer:
         
         print(f"Loaded checkpoint from epoch {epoch} with loss {loss:.4f}")
         return epoch
-    
-    def train_epoch(self):
-        """
-        Train the model for one epoch.
-        """
-        self.model.train()
-        total_loss = 0
-        num_batches = len(self.train_loader)
         
-        for batch_idx, batch in enumerate(self.train_loader):
-            images = batch['Image'].to(self.device)  # Input images
-            
-            # Convert raw annotations to YOLO target format
+    def train_epoch(self, epoch_idx: int, total_epochs: int):
+        self.model.train()
+        total_loss = 0.0
+        num_batches = len(self.train_loader)
+        disable_bar = not sys.stdout.isatty()
+        pbar = tqdm(self.train_loader, total=num_batches, desc=f"Epoch {epoch_idx}/{total_epochs}",
+                    leave=False, disable=disable_bar)
+
+        for batch_idx, batch in enumerate(pbar):
+            images = batch['Image'].to(self.device)
             targets = self.target_preparer(batch).to(self.device)
-            
-            # Forward pass
+
             predictions = self.model(images)
             loss_dict = self.criterion(predictions, targets)
-            
-            # Backward pass
-            self.optimizer.zero_grad()
-            loss_dict['total_loss'].backward()
-            
-            # Gradient clipping 
+            loss = loss_dict['total_loss']
+
+            self.optimizer.zero_grad(set_to_none=True)
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            
             self.optimizer.step()
-            
-            total_loss += loss_dict['total_loss'].item()
-            
-            # Print progress every 10 batches
-            if batch_idx % 10 == 0:
-                print(f"Batch {batch_idx}/{num_batches}, Loss: {loss_dict['total_loss'].item():.4f}, "
-                      f"LR: {self.optimizer.param_groups[0]['lr']:.6f}")
-        
+
+            loss_val = float(loss.detach().item())
+            total_loss += loss_val
+
+            avg_loss = total_loss / (batch_idx + 1)
+            current_lr = self.optimizer.param_groups[0]['lr']
+
+            # progress bar
+            pbar.set_postfix({
+                "batch_loss": f"{loss_val:.4f}",
+                "avg_loss": f"{avg_loss:.4f}",
+                "lr": f"{current_lr:.6f}"
+            })
+
+            # --- CSV per-batch log (NEW) ---
+            self._csv_append(self.csv_path_batches, [
+                datetime.utcnow().isoformat(timespec="seconds"),
+                epoch_idx,
+                batch_idx,
+                num_batches,
+                f"{loss_val:.6f}",
+                f"{avg_loss:.6f}",
+                f"{current_lr:.8f}",
+            ])
+            # --------------------------------
+
         return total_loss / num_batches
+
+
     
     def train(self, epochs, resume_from=None, save_every=5):
-        """
-        Train the model for multiple epochs.
-        
-        Args:
-            epochs: Number of epochs to train
-            resume_from: Path to checkpoint to resume from
-            save_every: Save checkpoint every N epochs
-        """
         start_epoch = 0
-        
-        # Resume from checkpoint if specified
+
         if resume_from:
             start_epoch = self.load_checkpoint(resume_from)
-        
+
         print(f"Starting training from epoch {start_epoch + 1} to {epochs}")
         print(f"Device: {self.device}")
         print(f"Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
-        
+
         for epoch in range(start_epoch, epochs):
             print(f"\n{'='*50}")
             print(f"Epoch {epoch + 1}/{epochs}")
             print(f"{'='*50}")
-            
-            # Train for one epoch
-            epoch_loss = self.train_epoch()
-            
-            # Update learning rate
+
+            # Train for one epoch with progress bar
+            epoch_loss = self.train_epoch(epoch_idx=epoch + 1, total_epochs=epochs)
+
+            # Step scheduler
             self.scheduler.step()
-            
+
             # Track losses
             self.train_losses.append(epoch_loss)
-            
-            # Check if this is the best model
+
+            # Best check
             is_best = epoch_loss < self.best_loss
             if is_best:
                 self.best_loss = epoch_loss
-            
+                # Save best immediately so you never lose it on crashes
+                self.save_checkpoint(epoch + 1, epoch_loss, is_best=True)
+
+            # --- CSV per-epoch log (NEW) ---
+            self._csv_append(self.csv_path_epochs, [
+                datetime.utcnow().isoformat(timespec="seconds"),
+                epoch + 1,
+                f"{epoch_loss:.6f}",
+                f"{self.best_loss:.6f}",
+                f"{self.optimizer.param_groups[0]['lr']:.8f}",
+                int(is_best),
+            ])
+            # --------------------------------
+
+
             print(f"Epoch {epoch + 1}/{epochs} completed:")
             print(f"  Average Loss: {epoch_loss:.4f}")
             print(f"  Best Loss: {self.best_loss:.4f}")
             print(f"  Learning Rate: {self.optimizer.param_groups[0]['lr']:.6f}")
-            
-            # Save checkpoint
-            if (epoch + 1) % save_every == 0 or is_best or epoch == epochs - 1:
-                self.save_checkpoint(epoch + 1, epoch_loss, is_best)
-        
+
+            # Periodic/last checkpoint (latest + epoch_{N})
+            if ((epoch + 1) % save_every == 0) or (epoch == epochs - 1):
+                self.save_checkpoint(epoch + 1, epoch_loss, is_best=False)
+
         print(f"\nTraining completed! Best loss: {self.best_loss:.4f}")
         return self.train_losses
