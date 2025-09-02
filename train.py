@@ -39,7 +39,7 @@ def main():
 
 if __name__ == "__main__":
     # For simple usage without command line arguments
-    data_dir = "/home/utn/abap44us/Downloads/UTN-CV25-Captcha-Dataset/part2/train"
+    data_dir = "/home/utn/omul36yx/git/UTN-CAPTCHASOLVER/UTN-CV25-Captcha-Dataset/part2/train"
     
     trainer = Trainer(
         data_dir=data_dir,
@@ -54,4 +54,4 @@ if __name__ == "__main__":
     )
     
     # Train the model
-    trainer.train(epochs=10, save_every=2)
+    trainer.train(epochs=20, save_every=2)
