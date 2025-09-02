@@ -4,7 +4,7 @@ class TargetPreparer:
     """
     Converts raw dataset annotations into YOLO target format.
     """
-    def __init__(self, GridHeight=40, GridWidth=160, num_classes=36, img_width=640, img_height=160):
+    def __init__(self, GridHeight=10, GridWidth=40, num_classes=36, img_width=640, img_height=160):
         # Change from 20×80 to 10×40 to match your model
         self.GridHeight = GridHeight
         self.GridWidth = GridWidth

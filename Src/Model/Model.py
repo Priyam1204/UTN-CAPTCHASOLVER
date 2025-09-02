@@ -7,7 +7,7 @@ class CaptchaSolverModel(nn.Module):
     """
     YOLO-style model combining the backbone and head.
     """
-    def __init__(self, num_classes=36, grid_height=40, grid_width=160):
+    def __init__(self, num_classes=36, grid_height=10, grid_width=40):
         super(CaptchaSolverModel, self).__init__()
         self.backbone = ModelBackbone(in_ch=1)  # Grayscale input
         self.head = ModelHead(InputChannels=256, Classes=num_classes, GridHeight=grid_height, GridWidth=grid_width)

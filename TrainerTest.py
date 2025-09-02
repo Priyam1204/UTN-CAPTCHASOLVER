@@ -19,8 +19,8 @@ def main():
     trainer = Trainer(
         data_dir=args.data_dir,
         num_classes=36,
-        grid_height=40,
-        grid_width=160,
+        grid_height=10,
+        grid_width=40,
         device=args.device,
         optimizer_type=args.optimizer,
         learning_rate=args.lr,
@@ -44,11 +44,11 @@ if __name__ == "__main__":
     trainer = Trainer(
         data_dir=data_dir,
         num_classes=36,
-        grid_height=40,
-        grid_width=160,
+        grid_height=10,
+        grid_width=40,
         device='cuda',
-        optimizer_type='adam',
-        learning_rate=0.001,
+        optimizer_type='adamw',
+        learning_rate=0.00003,
         weight_decay=1e-4,
         save_dir='./checkpoints'
     )

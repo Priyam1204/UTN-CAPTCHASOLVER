@@ -2,24 +2,52 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class ModelLoss(nn.Module):
-    """YOLOv8-style loss: Smooth L1 + Binary CE + Cross Entropy"""
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for addressing class imbalance in objectness detection.
+    Focuses learning on hard negative examples.
+    """
+    def __init__(self, alpha=0.25, gamma=2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+    
+    def forward(self, pred, target):
+        # pred: raw logits (before sigmoid)
+        # target: binary targets (0 or 1)
+        
+        # Calculate binary cross entropy
+        ce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
+        
+        # Calculate pt (probability of correct class)
+        pt = torch.exp(-ce_loss)
+        
+        # Apply focal loss formula: α(1-pt)^γ * CE
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+        
+        return focal_loss.sum()
 
-    def __init__(self, num_classes=36, GridHeight=40, GridWidth=160, LambdaBoundingBox=5.0, LambdaObjectness=1.0, LambdaClassification=1.0):
+class ModelLoss(nn.Module):
+    """YOLOv8-style loss: Smooth L1 + Focal Loss + Cross Entropy"""
+
+    def __init__(self, num_classes=36, GridHeight=10, GridWidth=40, 
+                 LambdaBoundingBox=5.0, LambdaObjectness=0.1, LambdaClassification=2.0):
         super(ModelLoss, self).__init__()
         self.num_classes = num_classes
-        self.GridHeight = GridHeight  # Rectangular grid height
-        self.GridWidth = GridWidth    # Rectangular grid width
+        self.GridHeight = GridHeight
+        self.GridWidth = GridWidth
         self.LambdaBoundingBox = LambdaBoundingBox
         self.LambdaObjectness = LambdaObjectness
         self.LambdaClassification = LambdaClassification
+        
+        # Initialize Focal Loss
+        self.focal_loss = FocalLoss(alpha=0.25, gamma=2.0)
     
     def forward(self, Predictions, GroundTruth):
         BatchSize = Predictions.size(0)
         
-        # Both should be flattened from TargetPreparer and Head
-        # Reshape both to grid format for loss calculation
-        Predictions = Predictions.view(BatchSize, self.GridHeight, self.GridWidth, 5 + self.num_classes)
+        # Predictions is already: (batch_size, GridHeight, GridWidth, 5+num_classes)
+        # GroundTruth still needs reshaping from flattened format
         GroundTruth = GroundTruth.view(BatchSize, self.GridHeight, self.GridWidth, 5 + self.num_classes)
         
         # Split into components
@@ -44,20 +72,54 @@ class ModelLoss(nn.Module):
                 reduction='sum'
             )
         
-        #Objectness Loss (Binary CE)
-        obj_loss = 0
-        if obj_mask.sum() > 0:
-            obj_loss = F.binary_cross_entropy_with_logits(
-                ObjectnessPredictions[obj_mask], GroundTruthObjectness[obj_mask], reduction='sum'
-            )
+        # ✅ FIXED: Balanced Sampling with reshape (Clean & Simple)
+        combined_targets = GroundTruthObjectness.squeeze(-1)  # Remove last dim
+        combined_preds = ObjectnessPredictions.squeeze(-1)    # Remove last dim
         
-        noobj_loss = 0
-        if noobj_mask.sum() > 0:
-            noobj_loss = F.binary_cross_entropy_with_logits(
-                ObjectnessPredictions[noobj_mask], torch.zeros_like(ObjectnessPredictions[noobj_mask]), reduction='sum'
-            )
+        # ✅ CLEAN: Use reshape() - handles contiguity automatically
+        flat_targets = combined_targets.reshape(-1)
+        flat_preds = combined_preds.reshape(-1)
         
-        total_obj_loss = obj_loss + noobj_loss
+        # Get positive and negative masks
+        pos_mask = (flat_targets > 0)
+        neg_mask = (flat_targets == 0)
+        
+        num_pos = pos_mask.sum().item()
+        num_neg = neg_mask.sum().item()
+        
+        # Apply balanced sampling (1:3 ratio - 1 positive : 3 negatives)
+        if num_pos > 0:
+            # Limit negatives to 8x positives (common YOLO practice)
+            max_negatives = min(num_pos * 8, num_neg)
+            
+            if num_neg > max_negatives:
+                # Randomly sample negatives
+                neg_indices = torch.where(neg_mask)[0]
+                
+                # Random sampling of negatives
+                perm = torch.randperm(len(neg_indices), device=neg_indices.device)
+                selected_neg_idx = neg_indices[perm[:max_negatives]]
+                
+                # Create balanced negative mask
+                balanced_neg_mask = torch.zeros_like(neg_mask)
+                balanced_neg_mask[selected_neg_idx] = True
+            else:
+                balanced_neg_mask = neg_mask
+            
+            # Combine positive and balanced negative masks
+            balanced_mask = pos_mask | balanced_neg_mask
+        else:
+            # If no positives, use all negatives (shouldn't happen in practice)
+            balanced_mask = neg_mask
+        
+        # Apply focal loss only to balanced samples
+        if balanced_mask.sum() > 0:
+            total_obj_loss = self.focal_loss(
+                flat_preds[balanced_mask],
+                flat_targets[balanced_mask]
+            )
+        else:
+            total_obj_loss = torch.tensor(0.0, device=flat_preds.device, requires_grad=True)
         
         #Classification Loss (Cross Entropy)
         class_loss = 0
@@ -89,6 +151,7 @@ class ModelLoss(nn.Module):
             'bbox_loss': bbox_loss,
             'obj_loss': total_obj_loss,
             'class_loss': class_loss,
-            'num_pos': obj_mask.sum().item(),
-            'num_neg': noobj_mask.sum().item()
+            'num_pos': num_pos,
+            'num_neg': balanced_mask.sum().item() - num_pos,  # Actual negatives used
+            'total_samples_used': balanced_mask.sum().item()
         }

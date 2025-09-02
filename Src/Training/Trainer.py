@@ -8,8 +8,8 @@ from Src.Data.DataLoader import CaptchaDataLoader
 from Src.Utils.TargetPreparer import TargetPreparer
 
 class Trainer:
-    def __init__(self, data_dir, num_classes=36, grid_height=40, grid_width=160, 
-                 device='cuda', optimizer_type='adam', learning_rate=0.001, 
+    def __init__(self, data_dir, num_classes=36, grid_height=10, grid_width=40, 
+                 device='cuda', optimizer_type='adam', learning_rate=0.00003, 
                  weight_decay=1e-4, save_dir='./checkpoints'):
         
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
@@ -42,7 +42,7 @@ class Trainer:
         self.scheduler = self._get_scheduler()
         
         # Initialize data loader
-        self.train_loader = CaptchaDataLoader(data_dir, batch_size=32, shuffle=True)
+        self.train_loader = CaptchaDataLoader(data_dir, batch_size=8, shuffle=True)
         
         # Initialize target preparer
         self.target_preparer = TargetPreparer(
@@ -75,7 +75,7 @@ class Trainer:
         Initialize the learning rate scheduler.
         """
         # You can choose different schedulers based on your needs
-        return StepLR(self.optimizer, step_size=10, gamma=0.1)
+        return StepLR(self.optimizer, step_size=3, gamma=0.8)
         # Alternative schedulers:
         # return CosineAnnealingLR(self.optimizer, T_max=50)
         # return ReduceLROnPlateau(self.optimizer, mode='min', patience=5, factor=0.5)
@@ -136,6 +136,35 @@ class Trainer:
         print(f"Loaded checkpoint from epoch {epoch} with loss {loss:.4f}")
         return epoch
     
+    def analyze_objectness_predictions(self, predictions):
+        """
+        Analyze objectness predictions to track fix effectiveness
+        """
+        # ✅ NO RESHAPING NEEDED: predictions is already [batch, height, width, channels]
+        # Extract objectness predictions (4th channel)
+        obj_preds = predictions[:, :, :, 4]  # Shape: [batch, height, width]
+        
+        # Apply sigmoid to get probabilities
+        obj_probs = torch.sigmoid(obj_preds)
+        
+        # Calculate statistics
+        stats = {
+            'min_prob': obj_probs.min().item(),
+            'max_prob': obj_probs.max().item(),
+            'mean_prob': obj_probs.mean().item(),
+            'std_prob': obj_probs.std().item(),
+        }
+        
+        # Count confident predictions at different thresholds
+        thresholds = [0.1, 0.3, 0.5, 0.7, 0.9]
+        for thresh in thresholds:
+            count = (obj_probs > thresh).sum().item()
+            total = obj_probs.numel()
+            stats[f'above_{thresh}'] = count
+            stats[f'pct_above_{thresh}'] = (count / total) * 100
+        
+        return stats
+
     def train_epoch(self):
         """
         Train the model for one epoch.
@@ -146,7 +175,11 @@ class Trainer:
         total_bbox_loss = 0 
         total_class_loss = 0
         num_positive_samples = 0
+        # ✅ ADD: Track sampling statistics
+        total_negative_samples = 0
+        total_samples_used = 0
         
+        # ✅ ADD: Analyze first batch objectness every 10 batches
         for batch_idx, batch in enumerate(self.train_loader):
             images = batch['Image'].to(self.device)
             targets = self.target_preparer(batch).to(self.device)
@@ -154,6 +187,17 @@ class Trainer:
             # Forward pass
             predictions = self.model(images)
             
+            # ✅ ADD: Analyze objectness every 50 batches
+            if batch_idx % 50 == 0:
+                with torch.no_grad():
+                    obj_stats = self.analyze_objectness_predictions(predictions)
+                    print(f"\n🎯 Objectness Analysis (Batch {batch_idx}):")
+                    print(f"  ├─ Prob Range: [{obj_stats['min_prob']:.4f}, {obj_stats['max_prob']:.4f}]")
+                    print(f"  ├─ Mean±Std: {obj_stats['mean_prob']:.4f}±{obj_stats['std_prob']:.4f}")
+                    print(f"  ├─ Above 0.1: {obj_stats['above_0.1']}/6400 ({obj_stats['pct_above_0.1']:.2f}%)")
+                    print(f"  ├─ Above 0.5: {obj_stats['above_0.5']}/6400 ({obj_stats['pct_above_0.5']:.2f}%)")
+                    print(f"  └─ Above 0.9: {obj_stats['above_0.9']}/6400 ({obj_stats['pct_above_0.9']:.2f}%)")
+        
             # Compute loss
             loss_dict = self.criterion(predictions, targets)
             loss = loss_dict['total_loss']
@@ -164,6 +208,9 @@ class Trainer:
             total_bbox_loss += loss_dict.get('bbox_loss', 0)
             total_class_loss += loss_dict.get('class_loss', 0)
             num_positive_samples += loss_dict.get('num_pos', 0)
+            # ✅ ADD: Track sampling statistics
+            total_negative_samples += loss_dict.get('num_neg', 0)
+            total_samples_used += loss_dict.get('total_samples_used', 0)
             
             # Backward pass
             self.optimizer.zero_grad()
@@ -174,19 +221,40 @@ class Trainer:
             
             self.optimizer.step()
             
-            # Log progress every 20 batches
+            # ✅ ENHANCED: Log progress with more details every 20 batches
             if batch_idx % 20 == 0:
+                pos_samples = loss_dict.get('num_pos', 0)
+                neg_samples = loss_dict.get('num_neg', 0)
+                total_used = loss_dict.get('total_samples_used', 0)
+                
+                # Calculate sampling ratio
+                if pos_samples > 0:
+                    sampling_ratio = neg_samples / pos_samples
+                else:
+                    sampling_ratio = 0
+                
                 print(f"Batch {batch_idx}/{len(self.train_loader)}: "
                       f"Loss={loss.item():.4f}, "
                       f"Obj={loss_dict.get('obj_loss', 0):.4f}, "
                       f"BBox={loss_dict.get('bbox_loss', 0):.4f}, "
-                      f"Class={loss_dict.get('class_loss', 0):.4f}, "
-                      f"Pos={loss_dict.get('num_pos', 0)}")
+                      f"Class={loss_dict.get('class_loss', 0):.4f}")
+                print(f"  ├─ Sampling: Pos={pos_samples}, Neg={neg_samples}, "
+                      f"Ratio=1:{sampling_ratio:.1f}, Used={total_used}")
         
         avg_loss = total_loss / len(self.train_loader)
         avg_pos = num_positive_samples / len(self.train_loader)
+        # ✅ ADD: Calculate average sampling statistics
+        avg_neg = total_negative_samples / len(self.train_loader)
+        avg_used = total_samples_used / len(self.train_loader)
         
-        print(f"Epoch Summary - Avg Loss: {avg_loss:.4f}, Avg Positive Samples: {avg_pos:.2f}")
+        print(f"\n📊 Epoch Summary:")
+        print(f"  ├─ Average Loss: {avg_loss:.4f}")
+        print(f"  ├─ Average Positive Samples: {avg_pos:.2f}")
+        print(f"  ├─ Average Negative Samples: {avg_neg:.2f}")
+        print(f"  ├─ Average Total Used: {avg_used:.2f}")
+        if avg_pos > 0:
+            print(f"  └─ Average Pos:Neg Ratio: 1:{avg_neg/avg_pos:.1f}")
+        
         return avg_loss
     
     def train(self, epochs, resume_from=None, save_every=5):

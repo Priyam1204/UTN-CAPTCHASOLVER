@@ -1,3 +1,6 @@
 UTN-CV25-Captcha-Dataset/
 .venv/
 UTN-CV25-Captcha-Dataset.zip
+*.pyc
+*.png
+*.pth
