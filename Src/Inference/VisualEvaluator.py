@@ -10,6 +10,7 @@ from Src.Data.DataLoader import CaptchaDataLoader
 from Src.Utils.TargetPreparer import TargetPreparer
 from Src.Utils.Decoder import decode_yolo_output
 from Src.Utils.NMS import ApplyNMS
+import json
 
 class VisualEvaluator:
     def __init__(self, model_path, num_classes=36, grid_height=20, grid_width=80, device='cuda'):
@@ -19,7 +20,8 @@ class VisualEvaluator:
         self.grid_width = grid_width
         self.img_width = 640    # Image width
         self.img_height = 160   # Image height
-        
+        self._json_records = []   # collects one dict per image
+
         # Initialize model
         self.model = CaptchaSolverModel(
             num_classes=num_classes,
@@ -34,6 +36,50 @@ class VisualEvaluator:
         
         # Character mapping (adjust based on your dataset)
         self.idx_to_char = self._create_character_mapping()
+
+    def _preds_to_json_entry(self, image_id, predictions, img_h=None, img_w=None):
+        """Build one JSON entry in your target schema from model predictions."""
+        img_h = int(img_h or self.img_height)
+        img_w = int(img_w or self.img_width)
+
+        anns = []
+        chars = []
+
+        preds = predictions[0] if (predictions and len(predictions[0]) > 0) else []
+        # left→right for a stable captcha_string
+        for x, y, w, h, conf, class_id in sorted(preds, key=lambda p: p[0]):
+            x1, y1 = float(x), float(y)
+            x2, y2 = float(x + w), float(y + h)
+            anns.append({
+                "bbox": [x1, y1, x2, y2],
+                "oriented_bbox": [x1, y1, x2, y1, x2, y2, x1, y2],
+                "category_id": int(class_id)
+            })
+            chars.append(self.idx_to_char.get(int(class_id), "?"))
+
+        return {
+            "height": img_h,
+            "width": img_w,
+            "image_id": str(image_id),
+            "captcha_string": "".join(chars),
+            "annotations": anns
+        }
+
+    def _append_and_optionally_write_json(self, entry, out_path=None):
+        """Append to in-memory list and write labels.json if a path is given."""
+        if not hasattr(self, "_json_records"):
+            self._json_records = []
+        self._json_records.append(entry)
+        if out_path:
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(self._json_records, f, ensure_ascii=False, indent=4)
+
+    # Optional alias (lets you call either name)
+    def _append_and_write_json(self, entry, json_path):
+        return self._append_and_optionally_write_json(entry, out_path=json_path)
+
+
         
     def _create_character_mapping(self):
         """Create mapping from class indices to characters"""
@@ -146,6 +192,22 @@ class VisualEvaluator:
             # Make prediction
             image_tensor = image.unsqueeze(0).to(self.device)  # Add batch dimension
             predictions = self.predict(image_tensor)
+
+                        # ---- NEW: derive an image_id and write JSON for predictions ----
+            # use filename stem as image_id when available
+            image_filename = os.path.basename(str(image_path))
+            image_id = os.path.splitext(image_filename)[0]
+
+            json_entry = self._preds_to_json_entry(
+                image_id=image_id,
+                predictions=predictions,
+                img_h=self.img_height,
+                img_w=self.img_width
+            )
+            json_out = os.path.join(save_dir, "labels.json")
+            self._append_and_write_json(json_entry, json_out)
+            # ---- end NEW ----
+
             
             # Create visualization
             self._create_side_by_side_plot(
@@ -314,6 +376,22 @@ class VisualEvaluator:
             self._create_prediction_plot(
                 image, predictions, image_id, batch_idx, save_dir
             )
+
+                        # Make prediction
+            image_tensor = image.unsqueeze(0).to(self.device)
+            predictions = self.predict(image_tensor)
+
+            # ---- NEW: build & save JSON entry for this image ----
+            json_entry = self._preds_to_json_entry(
+                image_id=image_id,
+                predictions=predictions,
+                img_h=self.img_height,
+                img_w=self.img_width
+            )
+            # Append and keep an always-up-to-date labels.json in save_dir
+            json_out = os.path.join(save_dir, "labels.json")
+            self._append_and_optionally_write_json(json_entry, out_path=json_out)
+
             
             print(f"Processed test image {batch_idx + 1}/{num_images}")
         
