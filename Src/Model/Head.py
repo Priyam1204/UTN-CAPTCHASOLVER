@@ -7,11 +7,11 @@ class ModelHead(nn.Module):
     """
     YOLOv8-style detection head for CAPTCHA character detection with rectangular grids.
     """
-    def __init__(self, InputChannels=256, Classes=36, GridHeight=10, GridWidth=40):
+    def __init__(self, InputChannels=256, Classes=36, GridHeight=40, GridWidth=160):
         super(ModelHead, self).__init__()
         self.Classes = Classes
-        self.GridHeight = GridHeight  # Height of the grid (e.g., 10)
-        self.GridWidth = GridWidth    # Width of the grid (e.g., 40)
+        self.GridHeight = GridHeight  # Height of the grid (e.g., 40)
+        self.GridWidth = GridWidth    # Width of the grid (e.g., 160)
         self.OutputChannels = 5 + Classes  # bbox(4) + objectness(1) + number of classes(Classes)
 
         # Feature processing layers

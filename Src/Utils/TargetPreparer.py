@@ -4,7 +4,8 @@ class TargetPreparer:
     """
     Converts raw dataset annotations into YOLO target format.
     """
-    def __init__(self, GridHeight=20, GridWidth=80, num_classes=36, img_width=640, img_height=160):
+    def __init__(self, GridHeight=40, GridWidth=160, num_classes=36, img_width=640, img_height=160):
+        # Change from 20×80 to 10×40 to match your model
         self.GridHeight = GridHeight
         self.GridWidth = GridWidth
         self.num_classes = num_classes
@@ -68,4 +69,6 @@ class TargetPreparer:
                 if 0 <= class_id < self.num_classes:
                     targets[b, grid_y, grid_x, 5 + class_id] = 1.0
 
-        return targets
+        #  Use view() for flattening
+        batch_size = targets.size(0)
+        return targets.view(batch_size, -1)  # Shape: (batch_size, 40*160*41)

@@ -8,7 +8,7 @@ from Src.Data.DataLoader import CaptchaDataLoader
 from Src.Utils.TargetPreparer import TargetPreparer
 
 class Trainer:
-    def __init__(self, data_dir, num_classes=36, grid_height=20, grid_width=80, 
+    def __init__(self, data_dir, num_classes=36, grid_height=40, grid_width=160, 
                  device='cuda', optimizer_type='adam', learning_rate=0.001, 
                  weight_decay=1e-4, save_dir='./checkpoints'):
         
@@ -142,35 +142,52 @@ class Trainer:
         """
         self.model.train()
         total_loss = 0
-        num_batches = len(self.train_loader)
+        total_obj_loss = 0
+        total_bbox_loss = 0 
+        total_class_loss = 0
+        num_positive_samples = 0
         
         for batch_idx, batch in enumerate(self.train_loader):
-            images = batch['Image'].to(self.device)  # Input images
-            
-            # Convert raw annotations to YOLO target format
+            images = batch['Image'].to(self.device)
             targets = self.target_preparer(batch).to(self.device)
             
             # Forward pass
             predictions = self.model(images)
+            
+            # Compute loss
             loss_dict = self.criterion(predictions, targets)
+            loss = loss_dict['total_loss']
+            
+            # Track detailed losses
+            total_loss += loss.item()
+            total_obj_loss += loss_dict.get('obj_loss', 0)
+            total_bbox_loss += loss_dict.get('bbox_loss', 0)
+            total_class_loss += loss_dict.get('class_loss', 0)
+            num_positive_samples += loss_dict.get('num_pos', 0)
             
             # Backward pass
             self.optimizer.zero_grad()
-            loss_dict['total_loss'].backward()
+            loss.backward()
             
-            # Gradient clipping 
+            # Gradient clipping for stability
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             
             self.optimizer.step()
             
-            total_loss += loss_dict['total_loss'].item()
-            
-            # Print progress every 10 batches
-            if batch_idx % 10 == 0:
-                print(f"Batch {batch_idx}/{num_batches}, Loss: {loss_dict['total_loss'].item():.4f}, "
-                      f"LR: {self.optimizer.param_groups[0]['lr']:.6f}")
+            # Log progress every 20 batches
+            if batch_idx % 20 == 0:
+                print(f"Batch {batch_idx}/{len(self.train_loader)}: "
+                      f"Loss={loss.item():.4f}, "
+                      f"Obj={loss_dict.get('obj_loss', 0):.4f}, "
+                      f"BBox={loss_dict.get('bbox_loss', 0):.4f}, "
+                      f"Class={loss_dict.get('class_loss', 0):.4f}, "
+                      f"Pos={loss_dict.get('num_pos', 0)}")
         
-        return total_loss / num_batches
+        avg_loss = total_loss / len(self.train_loader)
+        avg_pos = num_positive_samples / len(self.train_loader)
+        
+        print(f"Epoch Summary - Avg Loss: {avg_loss:.4f}, Avg Positive Samples: {avg_pos:.2f}")
+        return avg_loss
     
     def train(self, epochs, resume_from=None, save_every=5):
         """

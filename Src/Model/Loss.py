@@ -5,7 +5,7 @@ import torch.nn.functional as F
 class ModelLoss(nn.Module):
     """YOLOv8-style loss: Smooth L1 + Binary CE + Cross Entropy"""
 
-    def __init__(self, num_classes=36, GridHeight=10, GridWidth=40, LambdaBoundingBox=5.0, LambdaObjectness=1.0, LambdaClassification=1.0):
+    def __init__(self, num_classes=36, GridHeight=40, GridWidth=160, LambdaBoundingBox=5.0, LambdaObjectness=1.0, LambdaClassification=1.0):
         super(ModelLoss, self).__init__()
         self.num_classes = num_classes
         self.GridHeight = GridHeight  # Rectangular grid height
@@ -15,14 +15,12 @@ class ModelLoss(nn.Module):
         self.LambdaClassification = LambdaClassification
     
     def forward(self, Predictions, GroundTruth):
-        """
-        Predictions: (batch_size, GridHeight*grid_width*(5 + num_classes)) - [x,y,w,h,obj,classes...]
-        GroundTruth: (batch_size, GridHeight, grid_width, 5 + num_classes) - [x,y,w,h,conf,classes...]
-        """
         BatchSize = Predictions.size(0)
         
-        # Reshape Predictions to match GroundTruth
+        # Both should be flattened from TargetPreparer and Head
+        # Reshape both to grid format for loss calculation
         Predictions = Predictions.view(BatchSize, self.GridHeight, self.GridWidth, 5 + self.num_classes)
+        GroundTruth = GroundTruth.view(BatchSize, self.GridHeight, self.GridWidth, 5 + self.num_classes)
         
         # Split into components
         BoundingBoxPredictions = Predictions[..., :4]    # bounding boxes
