@@ -3,10 +3,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import torch
 from torch.utils.data import Dataset
-
-# torchvision v2
-from torchvision import transforms, tv_tensors
-from torchvision.transforms import v2 as T
+from .NoisePolicy import apply_noise_policy
 
 
 # ---------- Noise Augmentations (only image, boxes unchanged) ----------
