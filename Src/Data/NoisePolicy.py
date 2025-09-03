@@ -6,6 +6,22 @@ from torch.utils.data import Dataset
 from torchvision import transforms, tv_tensors
 from torchvision.transforms import v2 as T
 
+def Apply_Geo_Augmentations(image, target):
+    H, W = image.height, image.width
+    geom = T.Compose([
+        T.ToImage(),
+        T.RandomAffine(
+            degrees=7, translate=(0.02, 0.02), scale=(0.95, 1.05), shear=5,
+            interpolation=T.InterpolationMode.BILINEAR, fill=0
+        ),
+        T.SanitizeBoundingBoxes(min_size=1),
+        T.ToDtype(torch.float32, scale=True),
+    ])
+    boxes = tv_tensors.BoundingBoxes(target["boxes"], format="XYXY", canvas_size=(H, W))
+    tgt = {"boxes": boxes, "labels": target["labels"]}
+    img_t, tgt = geom(image, tgt)
+    return img_t, tgt
+
 
 def add_noise_transforms(image):
     # Injects photometric noise into image
@@ -120,7 +136,7 @@ def add_symbol_distractors(image,
     return base
 
 
-def apply_noise_policy(image,
+def Apply_Noise_Policy(image,
                        clean_prob=0.4,
                        photometric_prob=0.2,
                        clutter_prob=0.25,
