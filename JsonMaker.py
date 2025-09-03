@@ -1,9 +1,11 @@
 import json
+import torch
 from Src.Inference.SimpleEvaluator import SimpleEvaluator
 from Src.Data.DataLoader import CaptchaDataLoader
 
-def make_predictions_json(model_path, data_dir, conf_thresh=0.35, num_images=10, output_file='predictions.json'):
-    """Create predictions.json in README format"""
+def make_predictions():
+    model_path = "./checkpoints_Priyam/continue_training_20250903_011045/original_best_model.pth"
+    data_dir = "/home/utn/omul36yx/git/UTN-CAPTCHASOLVER/UTN-CV25-Captcha-Dataset/part2/val"
     
     evaluator = SimpleEvaluator(
         model_path=model_path,
@@ -11,74 +13,71 @@ def make_predictions_json(model_path, data_dir, conf_thresh=0.35, num_images=10,
         grid_height=10,
         grid_width=40,
         device='cuda',
-        default_conf_thresh=conf_thresh
+        default_conf_thresh=0.35
     )
     
     eval_loader = CaptchaDataLoader(data_dir, batch_size=1, shuffle=False)
-    predictions_data = []
+    raw_predictions = []
+    
+    print("Running inference for all images...")
     
     for batch_idx, batch in enumerate(eval_loader):
-        if batch_idx >= num_images:
+        if batch_idx >= 20000:
             break
-        
-        image = batch['Image'][0]
-        image_tensor = image.unsqueeze(0).to(evaluator.device)
-        image_id = batch['ImageID'][0]
-        
-        # Get left-to-right sorted predictions
-        pred_string, detections = evaluator.extract_captcha_string(image_tensor)
-        
-        # Create annotations
-        annotations = []
-        for det in detections:
-            x1, y1, x2, y2 = det['bbox']  # Already in corner format from decode_predictions
             
+        image_tensor = batch['Image'][0].unsqueeze(0).to(evaluator.device)
+        
+        with torch.no_grad():
+            raw_output = evaluator.model(image_tensor)
+            
+        decoded_predictions = evaluator.decode_predictions(raw_output, conf_thresh=0.1)  # Very low threshold
+        
+        raw_predictions.append({
+            'all_detections': decoded_predictions[0],  # All possible detections
+            'image_id': batch['ImageID'][0]
+        })
+        
+        if batch_idx % 1000 == 0:
+            print(f"Processed {batch_idx} images...")
+    
+    print(f"Inference complete! Processing {len(raw_predictions)} images with different thresholds...")
+    
+    for thresh in [0.3, 0.35, 0.4, 0.45]:
+        process_threshold(raw_predictions, thresh, evaluator)
+
+def process_threshold(raw_predictions, thresh, evaluator):
+    predictions_data = []
+    
+    for pred_data in raw_predictions:
+        # Just filter existing detections by confidence
+        filtered_dets = [det for det in pred_data['all_detections'] if det['confidence'] >= thresh]
+        
+        nms_results = evaluator.simple_nms(filtered_dets, iou_thresh=0.3)
+        sorted_detections = evaluator.sort_detections_left_to_right(nms_results)
+        
+        pred_string = "".join([det['char'] for det in sorted_detections])
+        
+        annotations = []
+        for det in sorted_detections:
+            x1, y1, x2, y2 = det['bbox']
             annotations.append({
                 "bbox": [float(x1), float(y1), float(x2), float(y2)],
                 "category_id": int(det['class_id'])
             })
         
-        # Create image entry
         predictions_data.append({
             "height": 160,
             "width": 640,
-            "image_id": image_id,
+            "image_id": pred_data['image_id'],
             "captcha_string": pred_string,
             "annotations": annotations
         })
     
-    # Save JSON
+    output_file = f"predictions_conf_{thresh:.2f}.json"
     with open(output_file, 'w') as f:
         json.dump(predictions_data, f, indent=4)
     
-    print(f"Saved {len(predictions_data)} predictions to {output_file} (threshold: {conf_thresh})")
-
-def make_multiple_predictions():
-    """Create predictions with multiple confidence thresholds"""
-    model_path = "./checkpoints_Priyam/continue_training_20250903_011045/best_model.pth"
-    data_dir = "/home/utn/omul36yx/git/UTN-CAPTCHASOLVER/UTN-CV25-Captcha-Dataset/part2/val"
-    
-    # Specific confidence thresholds to test
-    thresholds = [0.35, 0.4, 0.45, 0.5, 0.55]
-    
-    print("🚀 Creating predictions with multiple thresholds...")
-    print("="*60)
-    
-    for thresh in thresholds:
-        output_file = f"predictions_conf_{thresh:.2f}.json"
-        make_predictions_json(
-            model_path=model_path,
-            data_dir=data_dir,
-            conf_thresh=thresh,
-            num_images=10,
-            output_file=output_file
-        )
-    
-    print("="*60)
-    print("✅ All prediction files created!")
-    print("Files generated:")
-    for thresh in thresholds:
-        print(f"   - predictions_conf_{thresh:.2f}.json")
+    print(f"Saved {len(predictions_data)} predictions to {output_file} (threshold: {thresh})")
 
 if __name__ == "__main__":
-    make_multiple_predictions()
+    make_predictions()

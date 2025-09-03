@@ -57,7 +57,7 @@ def calculate_levenshtein_for_threshold(predictions_file, ground_truth_dict):
 def compare_thresholds():
     """Compare Levenshtein distances for different thresholds"""
     labels_file = "/home/utn/omul36yx/git/UTN-CAPTCHASOLVER/UTN-CV25-Captcha-Dataset/part2/val/labels.json"
-    thresholds = [0.35, 0.4, 0.45, 0.5, 0.55]
+    thresholds = [0.3, 0.35, 0.4, 0.45]
     
     print("🚀 Calculating Levenshtein Distance for Different Thresholds")
     print("="*60)
@@ -74,5 +74,21 @@ def compare_thresholds():
         else:
             print(f"Threshold {thresh:.2f}: File not found")
 
+# Add this to your script temporarily
+def check_data_counts():
+    labels_file = "/home/utn/omul36yx/git/UTN-CAPTCHASOLVER/UTN-CV25-Captcha-Dataset/part2/val/labels.json"
+    
+    with open(labels_file, 'r') as f:
+        labels_data = json.load(f)
+    
+    print(f"Ground truth has: {len(labels_data)} images")
+    
+    # Check one prediction file
+    if os.path.exists("predictions_conf_0.35.json"):
+        with open("predictions_conf_0.35.json", 'r') as f:
+            pred_data = json.load(f)
+        print(f"Predictions have: {len(pred_data)} images")
+
 if __name__ == "__main__":
     compare_thresholds()
+    check_data_counts()
