@@ -6,6 +6,7 @@ from Src.Model.Model import CaptchaSolverModel
 from Src.Model.Loss import ModelLoss
 from Src.Data.DataLoader import CaptchaDataLoader
 from Src.Utils.TargetPreparer import TargetPreparer
+from Src.Utils.CSV_Writer import CSVLogger
 
 class Trainer:
     def __init__(self, data_dir, num_classes=36, grid_height=10, grid_width=40, 
@@ -17,7 +18,8 @@ class Trainer:
         self.num_classes = num_classes
         self.grid_height = grid_height
         self.grid_width = grid_width
-        
+        self.csv = CSVLogger(save_dir)   # CSV logger
+        self._printed_loss_keys = False  # optional: one-time print of loss keys
         # Create save directory
         os.makedirs(save_dir, exist_ok=True)
         
@@ -178,7 +180,12 @@ class Trainer:
         # ✅ ADD: Track sampling statistics
         total_negative_samples = 0
         total_samples_used = 0
-        
+        from collections import defaultdict
+        comp_sums = defaultdict(float)
+        ordered_keys = None
+        preferred = ["total_loss", "bbox_loss", "obj_loss", "class_loss"]
+        running_total = 0.0
+        num_batches = len(self.train_loader)
         # ✅ ADD: Analyze first batch objectness every 10 batches
         for batch_idx, batch in enumerate(self.train_loader):
             images = batch['Image'].to(self.device)
@@ -201,7 +208,10 @@ class Trainer:
             # Compute loss
             loss_dict = self.criterion(predictions, targets)
             loss = loss_dict['total_loss']
-            
+            this_keys = [k for k in loss_dict.keys() if (k == "total_loss" or k.endswith("_loss"))]
+            if ordered_keys is None:
+                ordered_keys = [k for k in preferred if k in this_keys] + [k for k in this_keys if k not in preferred]
+                self.csv.init_batch_header(ordered_keys)
             # Track detailed losses
             total_loss += loss.item()
             total_obj_loss += loss_dict.get('obj_loss', 0)
@@ -220,7 +230,27 @@ class Trainer:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             
             self.optimizer.step()
+            # Scalars & accumulators
+            loss_f = float(loss.detach().item())
+            running_total += loss_f
+            running_avg = running_total / (batch_idx + 1)
+            lr_f = float(self.optimizer.param_groups[0]['lr'])
             
+            for k in ordered_keys:
+                v = loss_dict[k]
+                comp_sums[k] += (float(v.detach().item()) if torch.is_tensor(v) else float(v))
+            
+            # CSV row (batch)
+            self.csv.log_batch(
+                epoch=getattr(self, "current_epoch", -1),  # set in train()
+                batch_idx=batch_idx,
+                num_batches=num_batches,
+                lr=lr_f,
+                loss_dict={k: (float(loss_dict[k].detach().item()) if torch.is_tensor(loss_dict[k]) else float(loss_dict[k]))
+                           for k in ordered_keys},
+                running_avg_total=running_avg
+            )
+
             # ✅ ENHANCED: Log progress with more details every 20 batches
             if batch_idx % 20 == 0:
                 pos_samples = loss_dict.get('num_pos', 0)
@@ -246,7 +276,21 @@ class Trainer:
         # ✅ ADD: Calculate average sampling statistics
         avg_neg = total_negative_samples / len(self.train_loader)
         avg_used = total_samples_used / len(self.train_loader)
+        avg_total = comp_sums['total_loss'] / max(1, num_batches)
+        avg_components = {k: (comp_sums[k] / max(1, num_batches)) for k in ordered_keys if k != 'total_loss'}
+        is_best = avg_total < self.best_loss
+        if is_best:
+            self.best_loss = avg_total
         
+        self.csv.init_epoch_header(ordered_keys)  # ensure header exists once
+        self.csv.log_epoch(
+            epoch=getattr(self, "current_epoch", -1),
+            lr=float(self.optimizer.param_groups[0]['lr']),
+            is_best=is_best,
+            avg_total_loss=avg_total,
+            avg_components=avg_components
+        )
+
         print(f"\n📊 Epoch Summary:")
         print(f"  ├─ Average Loss: {avg_loss:.4f}")
         print(f"  ├─ Average Positive Samples: {avg_pos:.2f}")
@@ -282,6 +326,7 @@ class Trainer:
             print(f"{'='*50}")
             
             # Train for one epoch
+            self.current_epoch = epoch + 1
             epoch_loss = self.train_epoch()
             
             # Update learning rate
