@@ -4,3 +4,4 @@ UTN-CV25-Captcha-Dataset.zip
 *.pyc
 *.png
 *.pth
+*.json

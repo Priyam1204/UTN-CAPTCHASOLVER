@@ -24,3 +24,18 @@ class CaptchaSolverModel(nn.Module):
         features = self.backbone(x)  # Extract features using the backbone
         predictions = self.head(features)  # Generate predictions using the head
         return predictions
+
+'''Traditional ResNet Model Below
+class CaptchaSolverModel(nn.Module):
+    def __init__(self, num_classes=36, grid_height=10, grid_width=40):
+        super().__init__()
+        self.backbone = ModelBackbone(in_ch=1)   # grayscale
+        self.head = ModelHead(InputChannels=512,          # <-- only change
+                              Classes=num_classes,
+                              GridHeight=grid_height,
+                              GridWidth=grid_width)
+
+    def forward(self, x):
+        feats = self.backbone(x)
+        return self.head(feats)
+'''
