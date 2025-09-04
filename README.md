@@ -146,9 +146,9 @@ The model uses the following default configuration:
 - **Confidence Threshold**: 0.4
 - **IoU Threshold**: 0.3
 
-## 📊 Evaluation Metrics
+## 📊 Project Submission
 
-The evaluation results on the provided dataset can be found in the Evaluation Results folder. The checkpoints used for Evaluation are found in the releases part of the repo.
+The results for the ResNet18 and YOLOv8 style head Part2 test set can be found in [Part2 Result](https://github.com/Priyam1204/UTN-CAPTCHASOLVER/tree/main/Part2%20Result) calculated on the provided dataset. The checkpoints used for evaluation are found in [ModelWeights](https://github.com/Priyam1204/UTN-CAPTCHASOLVER/tree/main/ModelWeights).
 
 
 ## 📧 Contact
