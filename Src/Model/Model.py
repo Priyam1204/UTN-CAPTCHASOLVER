@@ -7,10 +7,10 @@ class CaptchaSolverModel(nn.Module):
     """
     YOLO-style model combining the backbone and head.
     """
-    def __init__(self, num_classes=36, grid_height=10, grid_width=40):
+    def __init__(self, NumClasses=36, GridHeight=10, GridWidth=40):
         super(CaptchaSolverModel, self).__init__()
         self.backbone = ModelBackbone(in_ch=1)  # Grayscale input
-        self.head = ModelHead(InputChannels=256, Classes=num_classes, GridHeight=grid_height, GridWidth=grid_width)
+        self.head = ModelHead(InputChannels=256, Classes=NumClasses, GridHeight=GridHeight, GridWidth=GridWidth)
 
     def forward(self, x):
         """
@@ -19,7 +19,7 @@ class CaptchaSolverModel(nn.Module):
             x: Input images (batch_size, 1, H, W)
 
         Returns:
-            predictions: (batch_size, GridHeight*GridWidth*(5 + num_classes))
+            predictions: (batch_size, GridHeight*GridWidth*(5 + NumClasses))
         """
         features = self.backbone(x)  # Extract features using the backbone
         predictions = self.head(features)  # Generate predictions using the head

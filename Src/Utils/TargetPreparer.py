@@ -4,12 +4,12 @@ class TargetPreparer:
     """
     Converts raw dataset annotations into YOLO target format.
     """
-    def __init__(self, GridHeight=20, GridWidth=80, num_classes=36, img_width=640, img_height=160):
+    def __init__(self, GridHeight=20, GridWidth=80, NumClasses=36, ImageWidth=640, ImageHeight=160):
         self.GridHeight = GridHeight
         self.GridWidth = GridWidth
-        self.num_classes = num_classes
-        self.img_width = img_width
-        self.img_height = img_height
+        self.NumClasses = NumClasses
+        self.ImageWidth = ImageWidth
+        self.ImageHeight = ImageHeight
 
     def __call__(self, batch):
         """
@@ -22,10 +22,10 @@ class TargetPreparer:
                 - 'CategoryIDs': List of tensors with category IDs for each image.
 
         Returns:
-            Tensor: YOLO target format (batch_size, GridHeight, GridWidth, 5 + num_classes).
+            Tensor: YOLO target format (batch_size, GridHeight, GridWidth, 5 + NumClasses).
         """
         batch_size = len(batch['BoundingBoxes'])
-        targets = torch.zeros(batch_size, self.GridHeight, self.GridWidth, 5 + self.num_classes)
+        targets = torch.zeros(batch_size, self.GridHeight, self.GridWidth, 5 + self.NumClasses)
 
         for b in range(batch_size):
             bboxes = batch['BoundingBoxes'][b]  # Tensor of shape (N, 4)
@@ -44,10 +44,10 @@ class TargetPreparer:
                 center_y = y + h / 2.0
                 
                 # Normalize to [0, 1]
-                center_x_norm = center_x / self.img_width
-                center_y_norm = center_y / self.img_height
-                width_norm = w / self.img_width
-                height_norm = h / self.img_height
+                center_x_norm = center_x / self.ImageWidth
+                center_y_norm = center_y / self.ImageHeight
+                width_norm = w / self.ImageWidth
+                height_norm = h / self.ImageHeight
 
                 # Find grid cell
                 grid_x = min(int(center_x_norm * self.GridWidth), self.GridWidth - 1)
@@ -65,7 +65,7 @@ class TargetPreparer:
                 targets[b, grid_y, grid_x, 4] = 1.0  # Confidence
 
                 # One-hot encode class label
-                if 0 <= class_id < self.num_classes:
+                if 0 <= class_id < self.NumClasses:
                     targets[b, grid_y, grid_x, 5 + class_id] = 1.0
 
         return targets

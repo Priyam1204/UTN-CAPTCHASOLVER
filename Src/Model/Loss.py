@@ -27,10 +27,10 @@ class FocalLoss(nn.Module):
 class ModelLoss(nn.Module):
     """YOLOv8-style loss: Smooth L1 + Focal Loss + Cross Entropy"""
 
-    def __init__(self, num_classes=36, GridHeight=10, GridWidth=40, 
+    def __init__(self, NumClasses=36, GridHeight=10, GridWidth=40, 
                  LambdaBoundingBox=5.0, LambdaObjectness=0.1, LambdaClassification=2.0):
         super(ModelLoss, self).__init__()
-        self.num_classes = num_classes
+        self.NumClasses = NumClasses
         self.GridHeight = GridHeight
         self.GridWidth = GridWidth
         self.LambdaBoundingBox = LambdaBoundingBox
@@ -44,8 +44,8 @@ class ModelLoss(nn.Module):
         
         BatchSize = Predictions.size(0)
         
-        #Reshape ground truth to (BatchSize, GridHeight, GridWidth, 5 + num_classes)
-        GroundTruth = GroundTruth.view(BatchSize, self.GridHeight, self.GridWidth, 5 + self.num_classes)
+        #Reshape ground truth to (BatchSize, GridHeight, GridWidth, 5 + num of classes)
+        GroundTruth = GroundTruth.view(BatchSize, self.GridHeight, self.GridWidth, 5 + self.NumClasses)
         
         # Split into components
         BoundingBoxPredictions = Predictions[..., :4]    # bounding boxes

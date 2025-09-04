@@ -1,353 +1,249 @@
 import torch
 import os
 from torch.optim import Adam, SGD, AdamW
-from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import StepLR
 from Src.Model.Model import CaptchaSolverModel
 from Src.Model.Loss import ModelLoss
 from Src.Data.DataLoader import CaptchaDataLoader
 from Src.Utils.TargetPreparer import TargetPreparer
-from Src.Utils.CSV_Writer import CSVLogger
+from Src.Utils.CSVWriter import CSVLogger
 
 class Trainer:
-    def __init__(self, data_dir, num_classes=36, grid_height=10, grid_width=40, 
-                 device='cuda', optimizer_type='adam', learning_rate=0.00003, 
-                 weight_decay=1e-4, save_dir='./checkpoints'):
+    def __init__(self, DataDir, NumClasses=36, GridHeight=10, GridWidth=40, 
+                 Device='cuda', OptimizerType='adam', LearningRate=0.00003, 
+                 WeightDecay=1e-4, SaveDir='./Checkpoints'):
         
-        self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
-        self.save_dir = save_dir
-        self.num_classes = num_classes
-        self.grid_height = grid_height
-        self.grid_width = grid_width
-        self.csv = CSVLogger(save_dir)   # CSV logger
-        self._printed_loss_keys = False  # optional: one-time print of loss keys
-        # Create save directory
-        os.makedirs(save_dir, exist_ok=True)
+        self.Device = torch.device(Device if torch.cuda.is_available() else 'cpu')
+        self.SaveDir = SaveDir
+        self.NumClasses = NumClasses
+        self.GridHeight = GridHeight
+        self.GridWidth = GridWidth
+        self.CSV = CSVLogger(SaveDir)
+        self.PrintedLossKeys = False
+        os.makedirs(SaveDir, exist_ok=True)
         
-        # Initialize model
-        self.model = CaptchaSolverModel(
-            num_classes=num_classes, 
-            grid_height=grid_height, 
-            grid_width=grid_width
-        ).to(self.device)
+        self.Model = CaptchaSolverModel(
+            NumClasses=NumClasses, 
+            GridHeight=GridHeight, 
+            GridWidth=GridWidth
+        ).to(self.Device)
         
-        # Initialize loss function
-        self.criterion = ModelLoss(
-            num_classes=num_classes, 
-            GridHeight=grid_height, 
-            GridWidth=grid_width
-        ).to(self.device)
+        self.Criterion = ModelLoss(
+            NumClasses=NumClasses, 
+            GridHeight=GridHeight, 
+            GridWidth=GridWidth
+        ).to(self.Device)
         
-        # Initialize optimizer
-        self.optimizer = self._get_optimizer(optimizer_type, learning_rate, weight_decay)
+        self.Optimizer = self.GetOptimizer(OptimizerType, LearningRate, WeightDecay)
+        self.Scheduler = self.GetScheduler()
+        self.TrainLoader = CaptchaDataLoader(DataDir, batch_size=8, shuffle=True)
         
-        # Initialize learning rate scheduler
-        self.scheduler = self._get_scheduler()
-        
-        # Initialize data loader
-        self.train_loader = CaptchaDataLoader(data_dir, batch_size=8, shuffle=True)
-        
-        # Initialize target preparer
-        self.target_preparer = TargetPreparer(
-            GridHeight=grid_height, 
-            GridWidth=grid_width, 
-            num_classes=num_classes,
-            img_width=640, 
-            img_height=160
+        self.TargetPreparer = TargetPreparer(
+            GridHeight=GridHeight, 
+            GridWidth=GridWidth, 
+            NumClasses=NumClasses,
+            ImageWidth=640, 
+            ImageHeight=160
         )
         
-        # Training metrics
-        self.best_loss = float('inf')
-        self.train_losses = []
+        self.BestLoss = float('inf')
+        self.TrainLosses = []
         
-    def _get_optimizer(self, optimizer_type, learning_rate, weight_decay):
+    def GetOptimizer(self, OptimizerType, LearningRate, WeightDecay):
         """
         Initialize the optimizer based on the specified type.
         """
-        if optimizer_type.lower() == 'adam':
-            return Adam(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        elif optimizer_type.lower() == 'adamw':
-            return AdamW(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        elif optimizer_type.lower() == 'sgd':
-            return SGD(self.model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=weight_decay)
+        if OptimizerType.lower() == 'adam':
+            return Adam(self.Model.parameters(), lr=LearningRate, weight_decay=WeightDecay)
+        elif OptimizerType.lower() == 'adamw':
+            return AdamW(self.Model.parameters(), lr=LearningRate, weight_decay=WeightDecay)
+        elif OptimizerType.lower() == 'sgd':
+            return SGD(self.Model.parameters(), lr=LearningRate, momentum=0.9, weight_decay=WeightDecay)
         else:
-            raise ValueError(f"Unsupported optimizer type: {optimizer_type}")
+            raise ValueError(f"Unsupported optimizer type: {OptimizerType}")
     
-    def _get_scheduler(self):
+    def GetScheduler(self):
         """
         Initialize the learning rate scheduler.
         """
-        # You can choose different schedulers based on your needs
-        return StepLR(self.optimizer, step_size=3, gamma=0.8)
-        # Alternative schedulers:
-        # return CosineAnnealingLR(self.optimizer, T_max=50)
-        # return ReduceLROnPlateau(self.optimizer, mode='min', patience=5, factor=0.5)
-    
-    def save_checkpoint(self, epoch, loss, is_best=False):
+        return StepLR(self.Optimizer, step_size=3, gamma=0.8)
+        
+    def SaveCheckpoint(self, Epoch, Loss, IsBest=False):
         """
         Save model checkpoint.
         """
-        checkpoint = {
-            'epoch': epoch,
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
-            'loss': loss,
-            'best_loss': self.best_loss,
-            'train_losses': self.train_losses,
+        Checkpoint = {
+            'epoch': Epoch,
+            'model_state_dict': self.Model.state_dict(),
+            'optimizer_state_dict': self.Optimizer.state_dict(),
+            'scheduler_state_dict': self.Scheduler.state_dict(),
+            'loss': Loss,
+            'best_loss': self.BestLoss,
+            'train_losses': self.TrainLosses,
             'model_config': {
-                'num_classes': self.num_classes,
-                'grid_height': self.grid_height,
-                'grid_width': self.grid_width
+                'num_classes': self.NumClasses,
+                'grid_height': self.GridHeight,
+                'grid_width': self.GridWidth
             }
         }
         
-        # Save latest checkpoint
-        latest_path = os.path.join(self.save_dir, 'latest_checkpoint.pth')
-        torch.save(checkpoint, latest_path)
-        print(f"Saved checkpoint to {latest_path}")
+        LatestPath = os.path.join(self.SaveDir, 'latest_checkpoint.pth')
+        torch.save(Checkpoint, LatestPath)
+        print(f"Saved checkpoint to {LatestPath}")
         
-        # Save best model
-        if is_best:
-            best_path = os.path.join(self.save_dir, 'best_model.pth')
-            torch.save(checkpoint, best_path)
-            print(f"Saved best model to {best_path}")
+        if IsBest:
+            BestPath = os.path.join(self.SaveDir, 'best_model.pth')
+            torch.save(Checkpoint, BestPath)
+            print(f"Saved best model to {BestPath}")
         
-        # Save epoch-specific checkpoint
-        epoch_path = os.path.join(self.save_dir, f'checkpoint_epoch_{epoch}.pth')
-        torch.save(checkpoint, epoch_path)
+        EpochPath = os.path.join(self.SaveDir, f'checkpoint_epoch_{Epoch}.pth')
+        torch.save(Checkpoint, EpochPath)
     
-    def load_checkpoint(self, checkpoint_path):
+    def LoadCheckpoint(self, CheckpointPath):
         """
         Load model checkpoint.
         """
-        if not os.path.exists(checkpoint_path):
-            print(f"Checkpoint not found: {checkpoint_path}")
+        if not os.path.exists(CheckpointPath):
+            print(f"Checkpoint not found: {CheckpointPath}")
             return 0
         
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        Checkpoint = torch.load(CheckpointPath, map_location=self.Device)
         
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        self.best_loss = checkpoint['best_loss']
-        self.train_losses = checkpoint['train_losses']
+        self.Model.load_state_dict(Checkpoint['model_state_dict'])
+        self.Optimizer.load_state_dict(Checkpoint['optimizer_state_dict'])
+        self.Scheduler.load_state_dict(Checkpoint['scheduler_state_dict'])
+        self.BestLoss = Checkpoint['best_loss']
+        self.TrainLosses = Checkpoint['train_losses']
         
-        epoch = checkpoint['epoch']
-        loss = checkpoint['loss']
+        Epoch = Checkpoint['epoch']
+        Loss = Checkpoint['loss']
         
-        print(f"Loaded checkpoint from epoch {epoch} with loss {loss:.4f}")
-        return epoch
-    
-    def analyze_objectness_predictions(self, predictions):
-        """
-        Analyze objectness predictions to track fix effectiveness
-        """
-        # ✅ NO RESHAPING NEEDED: predictions is already [batch, height, width, channels]
-        # Extract objectness predictions (4th channel)
-        obj_preds = predictions[:, :, :, 4]  # Shape: [batch, height, width]
-        
-        # Apply sigmoid to get probabilities
-        obj_probs = torch.sigmoid(obj_preds)
-        
-        # Calculate statistics
-        stats = {
-            'min_prob': obj_probs.min().item(),
-            'max_prob': obj_probs.max().item(),
-            'mean_prob': obj_probs.mean().item(),
-            'std_prob': obj_probs.std().item(),
-        }
-        
-        # Count confident predictions at different thresholds
-        thresholds = [0.1, 0.3, 0.5, 0.7, 0.9]
-        for thresh in thresholds:
-            count = (obj_probs > thresh).sum().item()
-            total = obj_probs.numel()
-            stats[f'above_{thresh}'] = count
-            stats[f'pct_above_{thresh}'] = (count / total) * 100
-        
-        return stats
+        print(f"Loaded checkpoint from epoch {Epoch} with loss {Loss:.4f}")
+        return Epoch
 
-    def train_epoch(self):
+    def TrainEpoch(self):
         """
         Train the model for one epoch.
         """
-        self.model.train()
-        total_loss = 0
-        total_obj_loss = 0
-        total_bbox_loss = 0 
-        total_class_loss = 0
-        num_positive_samples = 0
-        # ✅ ADD: Track sampling statistics
-        total_negative_samples = 0
-        total_samples_used = 0
+        self.Model.train()
+        TotalLoss = 0
         from collections import defaultdict
-        comp_sums = defaultdict(float)
-        ordered_keys = None
-        preferred = ["total_loss", "bbox_loss", "obj_loss", "class_loss"]
-        running_total = 0.0
-        num_batches = len(self.train_loader)
-        # ✅ ADD: Analyze first batch objectness every 10 batches
-        for batch_idx, batch in enumerate(self.train_loader):
-            images = batch['Image'].to(self.device)
-            targets = self.target_preparer(batch).to(self.device)
-            
-            # Forward pass
-            predictions = self.model(images)
-            
-            # ✅ ADD: Analyze objectness every 50 batches
-            if batch_idx % 50 == 0:
-                with torch.no_grad():
-                    obj_stats = self.analyze_objectness_predictions(predictions)
-                    print(f"\n🎯 Objectness Analysis (Batch {batch_idx}):")
-                    print(f"  ├─ Prob Range: [{obj_stats['min_prob']:.4f}, {obj_stats['max_prob']:.4f}]")
-                    print(f"  ├─ Mean±Std: {obj_stats['mean_prob']:.4f}±{obj_stats['std_prob']:.4f}")
-                    print(f"  ├─ Above 0.1: {obj_stats['above_0.1']}/6400 ({obj_stats['pct_above_0.1']:.2f}%)")
-                    print(f"  ├─ Above 0.5: {obj_stats['above_0.5']}/6400 ({obj_stats['pct_above_0.5']:.2f}%)")
-                    print(f"  └─ Above 0.9: {obj_stats['above_0.9']}/6400 ({obj_stats['pct_above_0.9']:.2f}%)")
+        CompSums = defaultdict(float)
+        OrderedKeys = None
+        Preferred = ["total_loss", "bbox_loss", "obj_loss", "class_loss"]
+        RunningTotal = 0.0
+        NumBatches = len(self.TrainLoader)
         
-            # Compute loss
-            loss_dict = self.criterion(predictions, targets)
-            loss = loss_dict['total_loss']
-            this_keys = [k for k in loss_dict.keys() if (k == "total_loss" or k.endswith("_loss"))]
-            if ordered_keys is None:
-                ordered_keys = [k for k in preferred if k in this_keys] + [k for k in this_keys if k not in preferred]
-                self.csv.init_batch_header(ordered_keys)
-            # Track detailed losses
-            total_loss += loss.item()
-            total_obj_loss += loss_dict.get('obj_loss', 0)
-            total_bbox_loss += loss_dict.get('bbox_loss', 0)
-            total_class_loss += loss_dict.get('class_loss', 0)
-            num_positive_samples += loss_dict.get('num_pos', 0)
-            # ✅ ADD: Track sampling statistics
-            total_negative_samples += loss_dict.get('num_neg', 0)
-            total_samples_used += loss_dict.get('total_samples_used', 0)
+        for BatchIdx, Batch in enumerate(self.TrainLoader):
+            Images = Batch['Image'].to(self.Device)
+            Targets = self.TargetPreparer(Batch).to(self.Device)
             
-            # Backward pass
-            self.optimizer.zero_grad()
-            loss.backward()
+            Predictions = self.Model(Images)
+        
+            LossDict = self.Criterion(Predictions, Targets)
+            Loss = LossDict['total_loss']
+            ThisKeys = [K for K in LossDict.keys() if (K == "total_loss" or K.endswith("_loss"))]
+            if OrderedKeys is None:
+                OrderedKeys = [K for K in Preferred if K in ThisKeys] + [K for K in ThisKeys if K not in Preferred]
+                self.CSV.init_batch_header(OrderedKeys)
             
-            # Gradient clipping for stability
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            TotalLoss += Loss.item()
             
-            self.optimizer.step()
-            # Scalars & accumulators
-            loss_f = float(loss.detach().item())
-            running_total += loss_f
-            running_avg = running_total / (batch_idx + 1)
-            lr_f = float(self.optimizer.param_groups[0]['lr'])
+            self.Optimizer.zero_grad()
+            Loss.backward()
             
-            for k in ordered_keys:
-                v = loss_dict[k]
-                comp_sums[k] += (float(v.detach().item()) if torch.is_tensor(v) else float(v))
+            torch.nn.utils.clip_grad_norm_(self.Model.parameters(), max_norm=1.0)
             
-            # CSV row (batch)
-            self.csv.log_batch(
-                epoch=getattr(self, "current_epoch", -1),  # set in train()
-                batch_idx=batch_idx,
-                num_batches=num_batches,
-                lr=lr_f,
-                loss_dict={k: (float(loss_dict[k].detach().item()) if torch.is_tensor(loss_dict[k]) else float(loss_dict[k]))
-                           for k in ordered_keys},
-                running_avg_total=running_avg
+            self.Optimizer.step()
+            
+            LossF = float(Loss.detach().item())
+            RunningTotal += LossF
+            RunningAvg = RunningTotal / (BatchIdx + 1)
+            LrF = float(self.Optimizer.param_groups[0]['lr'])
+            
+            for K in OrderedKeys:
+                V = LossDict[K]
+                CompSums[K] += (float(V.detach().item()) if torch.is_tensor(V) else float(V))
+            
+            self.CSV.log_batch(
+                epoch=getattr(self, "CurrentEpoch", -1),
+                batch_idx=BatchIdx,
+                num_batches=NumBatches,
+                lr=LrF,
+                loss_dict={K: (float(LossDict[K].detach().item()) if torch.is_tensor(LossDict[K]) else float(LossDict[K]))
+                           for K in OrderedKeys},
+                running_avg_total=RunningAvg
             )
 
-            # ✅ ENHANCED: Log progress with more details every 20 batches
-            if batch_idx % 20 == 0:
-                pos_samples = loss_dict.get('num_pos', 0)
-                neg_samples = loss_dict.get('num_neg', 0)
-                total_used = loss_dict.get('total_samples_used', 0)
+            if BatchIdx % 20 == 0:
+                TotalLossVal = Loss.item()
+                ObjLossVal = LossDict.get('obj_loss', 0)
+                BboxLossVal = LossDict.get('bbox_loss', 0)
+                ClassLossVal = LossDict.get('class_loss', 0)
                 
-                # Calculate sampling ratio
-                if pos_samples > 0:
-                    sampling_ratio = neg_samples / pos_samples
-                else:
-                    sampling_ratio = 0
-                
-                print(f"Batch {batch_idx}/{len(self.train_loader)}: "
-                      f"Loss={loss.item():.4f}, "
-                      f"Obj={loss_dict.get('obj_loss', 0):.4f}, "
-                      f"BBox={loss_dict.get('bbox_loss', 0):.4f}, "
-                      f"Class={loss_dict.get('class_loss', 0):.4f}")
-                print(f"  ├─ Sampling: Pos={pos_samples}, Neg={neg_samples}, "
-                      f"Ratio=1:{sampling_ratio:.1f}, Used={total_used}")
+                print(f"Batch {BatchIdx}/{len(self.TrainLoader)}: "
+                      f"Total={TotalLossVal:.4f}, "
+                      f"Obj={ObjLossVal:.4f}, "
+                      f"BBox={BboxLossVal:.4f}, "
+                      f"Class={ClassLossVal:.4f}")
+    
+        AvgLoss = TotalLoss / len(self.TrainLoader)
+        AvgTotal = CompSums['total_loss'] / max(1, NumBatches)
+        AvgComponents = {K: (CompSums[K] / max(1, NumBatches)) for K in OrderedKeys if K != 'total_loss'}
+        IsBest = AvgTotal < self.BestLoss
+        if IsBest:
+            self.BestLoss = AvgTotal
         
-        avg_loss = total_loss / len(self.train_loader)
-        avg_pos = num_positive_samples / len(self.train_loader)
-        # ✅ ADD: Calculate average sampling statistics
-        avg_neg = total_negative_samples / len(self.train_loader)
-        avg_used = total_samples_used / len(self.train_loader)
-        avg_total = comp_sums['total_loss'] / max(1, num_batches)
-        avg_components = {k: (comp_sums[k] / max(1, num_batches)) for k in ordered_keys if k != 'total_loss'}
-        is_best = avg_total < self.best_loss
-        if is_best:
-            self.best_loss = avg_total
-        
-        self.csv.init_epoch_header(ordered_keys)  # ensure header exists once
-        self.csv.log_epoch(
-            epoch=getattr(self, "current_epoch", -1),
-            lr=float(self.optimizer.param_groups[0]['lr']),
-            is_best=is_best,
-            avg_total_loss=avg_total,
-            avg_components=avg_components
+        self.CSV.init_epoch_header(OrderedKeys)
+        self.CSV.log_epoch(
+            epoch=getattr(self, "CurrentEpoch", -1),
+            lr=float(self.Optimizer.param_groups[0]['lr']),
+            is_best=IsBest,
+            avg_total_loss=AvgTotal,
+            avg_components=AvgComponents
         )
 
-        print(f"\n📊 Epoch Summary:")
-        print(f"  ├─ Average Loss: {avg_loss:.4f}")
-        print(f"  ├─ Average Positive Samples: {avg_pos:.2f}")
-        print(f"  ├─ Average Negative Samples: {avg_neg:.2f}")
-        print(f"  ├─ Average Total Used: {avg_used:.2f}")
-        if avg_pos > 0:
-            print(f"  └─ Average Pos:Neg Ratio: 1:{avg_neg/avg_pos:.1f}")
+        print(f"\nEpoch Summary:")
+        print(f"  Average Loss: {AvgLoss:.4f}")
         
-        return avg_loss
+        return AvgLoss
     
-    def train(self, epochs, resume_from=None, save_every=5):
+    def Train(self, Epochs, ResumeFrom=None, SaveEvery=5):
         """
         Train the model for multiple epochs.
-        
-        Args:
-            epochs: Number of epochs to train
-            resume_from: Path to checkpoint to resume from
-            save_every: Save checkpoint every N epochs
         """
-        start_epoch = 0
+        StartEpoch = 0
         
-        # Resume from checkpoint if specified
-        if resume_from:
-            start_epoch = self.load_checkpoint(resume_from)
+        if ResumeFrom:
+            StartEpoch = self.LoadCheckpoint(ResumeFrom)
         
-        print(f"Starting training from epoch {start_epoch + 1} to {epochs}")
-        print(f"Device: {self.device}")
-        print(f"Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
+        print(f"Starting training from epoch {StartEpoch + 1} to {Epochs}")
+        print(f"Device: {self.Device}")
+        print(f"Model parameters: {sum(P.numel() for P in self.Model.parameters()):,}")
         
-        for epoch in range(start_epoch, epochs):
+        for Epoch in range(StartEpoch, Epochs):
             print(f"\n{'='*50}")
-            print(f"Epoch {epoch + 1}/{epochs}")
+            print(f"Epoch {Epoch + 1}/{Epochs}")
             print(f"{'='*50}")
             
-            # Train for one epoch
-            self.current_epoch = epoch + 1
-            epoch_loss = self.train_epoch()
+            self.CurrentEpoch = Epoch + 1
+            EpochLoss = self.TrainEpoch()
             
-            # Update learning rate
-            self.scheduler.step()
+            self.Scheduler.step()
             
-            # Track losses
-            self.train_losses.append(epoch_loss)
+            self.TrainLosses.append(EpochLoss)
             
-            # Check if this is the best model
-            is_best = epoch_loss < self.best_loss
-            if is_best:
-                self.best_loss = epoch_loss
+            IsBest = EpochLoss < self.BestLoss
+            if IsBest:
+                self.BestLoss = EpochLoss
             
-            print(f"Epoch {epoch + 1}/{epochs} completed:")
-            print(f"  Average Loss: {epoch_loss:.4f}")
-            print(f"  Best Loss: {self.best_loss:.4f}")
-            print(f"  Learning Rate: {self.optimizer.param_groups[0]['lr']:.6f}")
+            print(f"Epoch {Epoch + 1}/{Epochs} completed:")
+            print(f"  Average Loss: {EpochLoss:.4f}")
+            print(f"  Best Loss: {self.BestLoss:.4f}")
+            print(f"  Learning Rate: {self.Optimizer.param_groups[0]['lr']:.6f}")
             
-            # Save checkpoint
-            if (epoch + 1) % save_every == 0 or is_best or epoch == epochs - 1:
-                self.save_checkpoint(epoch + 1, epoch_loss, is_best)
+            if (Epoch + 1) % SaveEvery == 0 or IsBest or Epoch == Epochs - 1:
+                self.SaveCheckpoint(Epoch + 1, EpochLoss, IsBest)
         
-        print(f"\nTraining completed! Best loss: {self.best_loss:.4f}")
-        return self.train_losses
+        print(f"\nTraining completed! Best loss: {self.BestLoss:.4f}")
+        return self.TrainLosses
