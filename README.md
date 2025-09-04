@@ -4,26 +4,26 @@
 
 # CAPTCHA Solver: Deep Learning for Computer Vision
 
-An end-to-end CAPTCHA recognition system developed as the **final project** for the *Computer Vision (WiSe 2024/25)* course at the **University of Technology Nuremberg (UTN)**.  
-The project explores multiple deep learning approaches for decoding alphanumeric CAPTCHAs with degradations, distortions, and distractors.
+An end-to-end CAPTCHA recognition system developed as the **final project** for the *Computer Vision (WiSe 2024/25)* course at the **[University of Technology Nuremberg (UTN)](https://www.utn.de/)**.  
+The project explores learning approaches with a ResNet-18 style backbone combined with **two separate classification head structures** (YOLOv8-style detection head and CTC-style sequence recognition head) built from scratch for decoding alphanumeric CAPTCHAs.
 
 ## 🌟 Features
 
-- **Hybrid Architectures**: Implemented both a **ResNet18 + YOLO-based detection head** (found in main branch) and a **CTC-sequence recognition model** (found in ctc-heads branch)
+- **Hybrid Architectures**: Implemented both a **ResNet18 + YOLO-based detection head** (found in main branch) and a **CTC-sequence recognition model** (found in [ctc-heads branch](https://github.com/Priyam1204/UTN-CAPTCHASOLVER/tree/ctc-branch))
 
 - **Custom Data Pipeline**: Preprocessing, augmentation, and dataset handling for 100k+ CAPTCHA images
-- **Evaluation Metrics**: Supports **Levenshtein Error Rate (LER)** and **mAP@0.5:0.95** (for bounding box tasks)
-- **Scalable Training Loop**: Configurable optimizers (Adam, AdamW, SGD), cosine learning rate scheduling, and warmup
+- **Evaluation Metrics**: We evaluated the project **Average Levenshtein Distance** on Validation Set. 
+- **Scalable Training Loop**: Configurable optimizers (Adam, AdamW, SGD)
 - **Experiment Tracking**: Outputs results in JSON for reproducibility and analysis
 - **Bonus Tasks**: Extended experiments with degradations and oriented bounding boxes
 
-## 📊 Dataset
+## 📊 Dataset Used for Project
 
 - **Size**: 100k images (60k train / 20k val / 20k test)  
 - **Resolution**: 640×160  
 - **Alphabet**: `0–9`, `A–Z`  
-- **Annotations**: Ground truth strings & bounding boxes (train/val)  
-- **Variations**: Rotation, shear, noise, distractors, complex backgrounds  
+- **Annotations**: Ground truth strings & bounding boxes in labels.json (train/val)  
+  
 
 ## 🏗️ Project Structure
 
@@ -39,7 +39,7 @@ The project explores multiple deep learning approaches for decoding alphanumeric
 
 1. **Clone the repository:**
 ```bash
-   git clone https://github.com/your-username/UTN-CAPTCHASOLVER.git
+   git clone https://github.com/Priyam1204/UTN-CAPTCHASOLVER.git
    cd UTN-CAPTCHASOLVER
 ```
 
@@ -50,50 +50,111 @@ pip install -r requirements.txt
 
 ## 💻 Usage
 
-### Running Training
+### Training the Model
 
-Run the Trainer on the provided CAPTCHA dataset:
+Train the CAPTCHA solver model using the provided dataset:
+
 ```bash
-python Src/Training/Trainer.py \
+python TrainModel.py \
     --data_dir /path/to/UTN-CV25-Captcha-Dataset/part2/train \
-    --val_dir /path/to/UTN-CV25-Captcha-Dataset/part2/val \
     --epochs 20 \
-    --batch_size 16 \
-    --base_lr 3e-4
+    --optimizer adamw \
+    --lr 0.00003 \
+    --weight_decay 1e-4 \
+    --device cuda \
+    --save_dir ./checkpoints \
+    --save_every 5
 ```
 
-### Model Evaluation
+#### Resume Training from Checkpoint
 
-#### Evaluate a single checkpoint
+Continue training from a previously saved checkpoint:
+
 ```bash
-python evaluate_model.py \
-    --model_ckpt ./checkpoints/checkpoint_epoch_10.pth \
-    --data_dir /path/to/UTN-CV25-Captcha-Dataset/part2/val \
-    --json_path results/part2_epoch10_eval.json
+python TrainModel.py \
+    --data_dir /path/to/UTN-CV25-Captcha-Dataset/part2/train \
+    --resume ./checkpoints/best_model.pth \
+    --epochs 30 \
+    --save_every 5
 ```
 
-Outputs:
+#### Available Training Arguments
 
-JSON file in dataset submission format
+- `--data_dir`: Path to training data directory (required)
+- `--epochs`: Number of epochs to train (default: 5)
+- `--optimizer`: Optimizer type [adam, adamw, sgd] (default: adam)
+- `--lr`: Learning rate (default: 0.00003)
+- `--weight_decay`: Weight decay (default: 1e-4)
+- `--device`: Device to use [cuda, cpu] (default: cuda)
+- `--save_dir`: Directory to save checkpoints (default: ./checkpoints)
+- `--resume`: Path to checkpoint to resume from (optional)
+- `--save_every`: Save checkpoint every N epochs (default: 2)
 
+### Model Inference
+
+#### Run Inference on Single Image or Folder
+
+```bash
+python ModelInference.py \
+    --data_dir /path/to/images \
+    --num_images 10
+```
+
+#### Inference on All Images in Directory
+
+```bash
+python ModelInference.py \
+    --data_dir /path/to/images
+```
+
+#### Available Inference Arguments
+
+- `--data_dir`: Path to directory containing images (required)
+- `--num_images`: Number of images to process (default: all images)
+
+#### Inference Output
+
+The inference script generates:
+- **JSON Results**: `predictions_conf_0.40.json` with predicted CAPTCHA strings and bounding boxes
+- **Visualizations**: Annotated images in `inference_results/` folder showing detected characters with bounding boxes
+- **Console Output**: Progress information and predicted strings
+
+Example output format:
+```json
+[
+    {
+        "height": 160,
+        "width": 640,
+        "image_id": "000001",
+        "captcha_string": "ABC123",
+        "annotations": [
+            {
+                "bbox": [45.2, 32.1, 78.9, 89.4],
+                "category_id": 10
+            }
+        ]
+    }
+]
+```
+
+### Model Configuration
+
+The model uses the following default configuration:
+- **Input Size**: 640×160 pixels
+- **Grid Size**: 10×40 (height×width)
+- **Classes**: 36 (0-9, A-Z)
+- **Confidence Threshold**: 0.4
+- **IoU Threshold**: 0.3
 
 ## 📊 Evaluation Metrics
 
 The evaluation results on the provided dataset can be found in the Evaluation Results folder. The checkpoints used for Evaluation are found in the releases part of the repo.
-
-## 🙏 Acknowledgments
-
-- Prof. Dr. Eddy Ilg from University of Technology, Nuremberg for Captcha Dataset
 
 
 ## 📧 Contact
 
 For questions or issues, please:
 - Open an issue on GitHub
-- Contact: [noas.shaalan@gmail.com] or [noas.shaalan@utn.de] 
 - Contact: [priyammishra1204@gmail.com] or [priyam.mishra@utn.de]
+- Contact: [noas.shaalan@gmail.com] or [noas.shaalan@utn.de] 
 - Contact: [Adam.Jen.Khai.Lo@utn.de]
-
----
-
-**Keywords**: CAPTCHA Solver, Optical Character Recognition (OCR), Connectionist Temporal Classification (CTC), Deep Learning, Computer Vision, PyTorch, ResNet-18, Synthetic CAPTCHA Dataset, YOLO, YOLOv8
