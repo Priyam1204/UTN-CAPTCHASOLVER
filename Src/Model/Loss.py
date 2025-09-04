@@ -13,16 +13,13 @@ class FocalLoss(nn.Module):
         self.gamma = gamma
     
     def forward(self, pred, target):
-        # pred: raw logits (before sigmoid)
-        # target: binary targets (0 or 1)
-        
         # Calculate binary cross entropy
         ce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
         
         # Calculate pt (probability of correct class)
         pt = torch.exp(-ce_loss)
         
-        # Apply focal loss formula: α(1-pt)^γ * CE
+        #Apply focal loss formula: α(1-pt)^γ * CE
         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
         
         return focal_loss.sum()
@@ -44,10 +41,10 @@ class ModelLoss(nn.Module):
         self.focal_loss = FocalLoss(alpha=0.25, gamma=2.0)
     
     def forward(self, Predictions, GroundTruth):
+        
         BatchSize = Predictions.size(0)
         
-        # Predictions is already: (batch_size, GridHeight, GridWidth, 5+num_classes)
-        # GroundTruth still needs reshaping from flattened format
+        #Reshape ground truth to (BatchSize, GridHeight, GridWidth, 5 + num_classes)
         GroundTruth = GroundTruth.view(BatchSize, self.GridHeight, self.GridWidth, 5 + self.num_classes)
         
         # Split into components
@@ -72,11 +69,9 @@ class ModelLoss(nn.Module):
                 reduction='sum'
             )
         
-        # ✅ FIXED: Balanced Sampling with reshape (Clean & Simple)
-        combined_targets = GroundTruthObjectness.squeeze(-1)  # Remove last dim
-        combined_preds = ObjectnessPredictions.squeeze(-1)    # Remove last dim
-        
-        # ✅ CLEAN: Use reshape() - handles contiguity automatically
+        #Balanced Sampling with reshape by removing last dimension
+        combined_targets = GroundTruthObjectness.squeeze(-1)  
+        combined_preds = ObjectnessPredictions.squeeze(-1)    
         flat_targets = combined_targets.reshape(-1)
         flat_preds = combined_preds.reshape(-1)
         
@@ -87,9 +82,9 @@ class ModelLoss(nn.Module):
         num_pos = pos_mask.sum().item()
         num_neg = neg_mask.sum().item()
         
-        # Apply balanced sampling (1:3 ratio - 1 positive : 3 negatives)
+        # Apply balanced sampling (1:8 ratio - 1 positive : 8 negatives)
         if num_pos > 0:
-            # Limit negatives to 8x positives (common YOLO practice)
+            # Limit negatives to 8x positives
             max_negatives = min(num_pos * 8, num_neg)
             
             if num_neg > max_negatives:
@@ -152,6 +147,6 @@ class ModelLoss(nn.Module):
             'obj_loss': total_obj_loss,
             'class_loss': class_loss,
             'num_pos': num_pos,
-            'num_neg': balanced_mask.sum().item() - num_pos,  # Actual negatives used
+            'num_neg': balanced_mask.sum().item() - num_pos,  
             'total_samples_used': balanced_mask.sum().item()
         }

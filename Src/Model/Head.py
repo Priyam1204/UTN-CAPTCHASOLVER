@@ -10,8 +10,8 @@ class ModelHead(nn.Module):
     def __init__(self, InputChannels=256, Classes=36, GridHeight=10, GridWidth=40):
         super(ModelHead, self).__init__()
         self.Classes = Classes
-        self.GridHeight = GridHeight  # Height of the grid (e.g., 10)
-        self.GridWidth = GridWidth    # Width of the grid (e.g., 40)
+        self.GridHeight = GridHeight
+        self.GridWidth = GridWidth
         self.OutputChannels = 5 + Classes  # bbox(4) + objectness(1) + number of classes(Classes)
 
         # Feature processing layers
@@ -20,13 +20,13 @@ class ModelHead(nn.Module):
         self.conv2 = nn.Conv2d(128, 64, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(64)
 
-        # Final prediction layer
+        #Final prediction layer
         self.pred_conv = nn.Conv2d(64, self.OutputChannels, kernel_size=1)
 
-        # Adaptive pooling to ensure GridHeight × GridWidth output
+        #Adaptive pooling to ensure GridHeight × GridWidth output
         self.adaptive_pool = nn.AdaptiveAvgPool2d((GridHeight, GridWidth))
 
-        # Initialize weights
+        #Initialize weights
         self.apply(WeightInitializer)
 
     
@@ -40,17 +40,14 @@ class ModelHead(nn.Module):
         Returns:
             predictions: (batch_size, GridHeight, GridWidth, 5 + Classes)
         """
-        x = F.relu(self.bn1(self.conv1(x)))  # (batch_size, 128, 40, 10)
-        x = F.relu(self.bn2(self.conv2(x)))  # (batch_size, 64, 40, 10)
-        x = self.pred_conv(x)                # (batch_size, 5+num_classes, 40, 10)
-        x = self.adaptive_pool(x)            # Ensure (GridHeight, GridWidth) output
+        x = F.relu(self.bn1(self.conv1(x)))  #(batch_size, 128, 40, 10)
+        x = F.relu(self.bn2(self.conv2(x)))  #(batch_size, 64, 40, 10)
+        x = self.pred_conv(x)                #(batch_size, 5+num_classes, 40, 10)
+        x = self.adaptive_pool(x)            #Ensures (GridHeight, GridWidth) output
 
         batch_size = x.size(0)
-        x = x.permute(0, 2, 3, 1)  # (batch_size, GridHeight, GridWidth, 5+num_classes)
+        x = x.permute(0, 2, 3, 1)  #(batch_size, GridHeight, GridWidth, 5+num_classes)
         
-        # ✅ REMOVE: Don't flatten anymore!
-        # x = x.reshape(batch_size, -1)  # Remove this line
-        
-        return x  # Return: (batch_size, GridHeight, GridWidth, 5+num_classes)
+        return x  
 
 
